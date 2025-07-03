@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../providers/simple_task_provider.dart';
-import '../providers/simple_project_provider.dart';
+import '../providers/persistent_task_provider.dart';
+import '../providers/persistent_project_provider.dart';
 import '../models/models.dart';
 import 'task_item.dart';
 
@@ -13,18 +13,18 @@ class TaskBoard extends StatelessWidget {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     
-    return Consumer2<SimpleTaskProvider, SimpleProjectProvider>(
+    return Consumer2<PersistentTaskProvider, PersistentProjectProvider>(
       builder: (context, taskProvider, projectProvider, child) {
         final columns = ['Backlog', 'To Do', 'In Progress', 'Done'];
-        final selectedProject = projectProvider.selectedProject;
+        final selectedProjectId = projectProvider.selectedProjectId;
         
         return Padding(
           padding: const EdgeInsets.all(24),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: columns.map((column) {
-              final tasks = selectedProject != null 
-                  ? taskProvider.getTasksByColumnAndProject(column, selectedProject.id)
+              final tasks = selectedProjectId != null 
+                  ? taskProvider.getTasksByProject(selectedProjectId).where((t) => t.column == column).toList()
                   : taskProvider.getTasksByColumn(column);
               return Expanded(
                 child: Container(
@@ -115,7 +115,7 @@ class TaskBoard extends StatelessWidget {
     );
   }
 
-  Widget _buildTaskList(List<Task> tasks, String column, ColorScheme colorScheme, ThemeData theme, SimpleTaskProvider taskProvider) {
+  Widget _buildTaskList(List<Task> tasks, String column, ColorScheme colorScheme, ThemeData theme, PersistentTaskProvider taskProvider) {
     return DragTarget<Task>(
       onAcceptWithDetails: (details) {
         final task = details.data;

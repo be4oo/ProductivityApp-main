@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'dart:async';
 import '../models/models.dart';
-import '../providers/simple_task_provider.dart';
+import '../providers/persistent_task_provider.dart';
 
 class FocusModeWidget extends StatefulWidget {
   final Task task;

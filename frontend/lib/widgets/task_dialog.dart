@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/models.dart';
-import '../providers/simple_task_provider.dart';
+import '../providers/persistent_task_provider.dart';
 
 class TaskDialog extends StatefulWidget {
   final Task? task;
@@ -96,7 +96,7 @@ class _TaskDialogState extends State<TaskDialog> {
     });
 
     try {
-      final taskProvider = Provider.of<SimpleTaskProvider>(context, listen: false);
+      final taskProvider = Provider.of<PersistentTaskProvider>(context, listen: false);
       
       DateTime? finalDueDate;
       if (_dueDate != null && _dueTime != null) {
@@ -120,24 +120,40 @@ class _TaskDialogState extends State<TaskDialog> {
       if (widget.task == null) {
         // Create new task
         taskProvider.createTask(
-          projectId: widget.projectId,
-          title: _titleController.text.trim(),
-          description: _descriptionController.text.trim(),
-          priority: _priority,
-          dueDate: finalDueDate,
-          estimatedPomodoros: _estimatedPomodoros,
-          tags: tags,
+          Task(
+            id: 0, // Will be assigned by the provider
+            title: _titleController.text.trim(),
+            description: _descriptionController.text.trim(),
+            column: 'To Do',
+            estimatedTime: (_estimatedPomodoros ?? 0) * 25,
+            actualTime: 0,
+            priority: _priority,
+            status: TaskStatus.todo,
+            reminderEnabled: false,
+            reminderOffset: 0,
+            isUrgent: false,
+            isImportant: false,
+            projectId: widget.projectId,
+            ownerId: 1,
+            createdAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+            dueDate: finalDueDate,
+            tags: tags,
+            estimatedPomodoros: _estimatedPomodoros,
+          ),
         );
       } else {
         // Update existing task
         taskProvider.updateTask(
-          widget.task!.id,
-          title: _titleController.text.trim(),
-          description: _descriptionController.text.trim(),
-          priority: _priority,
-          dueDate: finalDueDate,
-          estimatedPomodoros: _estimatedPomodoros,
-          tags: tags,
+          widget.task!.copyWith(
+            title: _titleController.text.trim(),
+            description: _descriptionController.text.trim(),
+            priority: _priority,
+            dueDate: finalDueDate,
+            estimatedPomodoros: _estimatedPomodoros,
+            tags: tags,
+            estimatedTime: (_estimatedPomodoros ?? 0) * 25,
+          ),
         );
       }
 

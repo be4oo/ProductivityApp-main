@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../providers/simple_project_provider.dart';
-import '../providers/simple_task_provider.dart';
+import '../models/models.dart';
+import '../providers/persistent_project_provider.dart';
+import '../providers/persistent_task_provider.dart';
 
 class ProjectSidebar extends StatelessWidget {
   const ProjectSidebar({Key? key}) : super(key: key);
@@ -11,7 +12,7 @@ class ProjectSidebar extends StatelessWidget {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     
-    return Consumer<SimpleProjectProvider>(
+    return Consumer<PersistentProjectProvider>(
       builder: (context, projectProvider, child) {
         if (projectProvider.isLoading) {
           return const Center(child: CircularProgressIndicator());
@@ -46,7 +47,7 @@ class ProjectSidebar extends StatelessWidget {
                 itemCount: projectProvider.projects.length,
                 itemBuilder: (context, index) {
                   final project = projectProvider.projects[index];
-                  final isSelected = projectProvider.selectedProject?.id == project.id;
+                  final isSelected = projectProvider.selectedProjectId == project.id;
                   
                   return Container(
                     margin: const EdgeInsets.symmetric(vertical: 2),
@@ -126,9 +127,9 @@ class ProjectSidebar extends StatelessWidget {
                         ],
                       ),
                       onTap: () {
-                        projectProvider.selectProject(project);
+                        projectProvider.selectProject(project.id);
                         // Reload tasks for the selected project
-                        Provider.of<SimpleTaskProvider>(context, listen: false)
+                        Provider.of<PersistentTaskProvider>(context, listen: false)
                             .loadTasks();
                       },
                     ),
@@ -234,13 +235,19 @@ class ProjectSidebar extends StatelessWidget {
             FilledButton(
               onPressed: () {
                 if (nameController.text.trim().isNotEmpty) {
-                  Provider.of<SimpleProjectProvider>(context, listen: false)
+                  Provider.of<PersistentProjectProvider>(context, listen: false)
                       .createProject(
-                    nameController.text.trim(),
-                    descriptionController.text.trim().isEmpty 
-                      ? null 
-                      : descriptionController.text.trim(),
-                    '#${selectedColor.value.toRadixString(16).substring(2)}',
+                    Project(
+                      id: 0, // Will be assigned by the provider
+                      name: nameController.text.trim(),
+                      description: descriptionController.text.trim().isEmpty 
+                        ? null 
+                        : descriptionController.text.trim(),
+                      color: selectedColor.toString(),
+                      ownerId: 1,
+                      createdAt: DateTime.now(),
+                      updatedAt: DateTime.now(),
+                    ),
                   );
                   Navigator.pop(context);
                 }
@@ -273,7 +280,7 @@ class ProjectSidebar extends StatelessWidget {
           ),
           FilledButton(
             onPressed: () {
-              Provider.of<SimpleProjectProvider>(context, listen: false)
+              Provider.of<PersistentProjectProvider>(context, listen: false)
                   .deleteProject(project.id);
               Navigator.pop(context);
             },

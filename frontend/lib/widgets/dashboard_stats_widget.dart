@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../providers/simple_task_provider.dart';
+import '../providers/persistent_task_provider.dart';
 
 class DashboardStatsWidget extends StatelessWidget {
   const DashboardStatsWidget({Key? key}) : super(key: key);
@@ -10,7 +10,7 @@ class DashboardStatsWidget extends StatelessWidget {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     
-    return Consumer<SimpleTaskProvider>(
+    return Consumer<PersistentTaskProvider>(
       builder: (context, taskProvider, child) {
         final stats = taskProvider.dashboardStats;
         

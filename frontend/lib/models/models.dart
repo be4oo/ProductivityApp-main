@@ -1,24 +1,43 @@
+import 'package:hive/hive.dart';
+
+part 'models.g.dart';
+
 // Task Priority Enum
+@HiveType(typeId: 0)
 enum TaskPriority {
+  @HiveField(0)
   low,
+  @HiveField(1)
   medium,
+  @HiveField(2)
   high,
+  @HiveField(3)
   urgent,
 }
 
 // Task Status Enum  
+@HiveType(typeId: 1)
 enum TaskStatus {
+  @HiveField(0)
   todo,
+  @HiveField(1)
   inProgress,
+  @HiveField(2)
   done,
+  @HiveField(3)
   completed,
+  @HiveField(4)
   cancelled,
 }
 
 // Project Priority Enum
+@HiveType(typeId: 2)
 enum ProjectPriority {
+  @HiveField(0)
   low,
+  @HiveField(1)
   medium,
+  @HiveField(2)
   high,
 }
 
@@ -68,12 +87,19 @@ extension ProjectPriorityExtension on ProjectPriority {
   }
 }
 
+@HiveType(typeId: 3)
 class User {
+  @HiveField(0)
   final int id;
+  @HiveField(1)
   final String email;
+  @HiveField(2)
   final String username;
+  @HiveField(3)
   final String? fullName;
+  @HiveField(4)
   final bool isActive;
+  @HiveField(5)
   final DateTime createdAt;
 
   User({
@@ -108,13 +134,21 @@ class User {
   }
 }
 
+@HiveType(typeId: 4)
 class Project {
+  @HiveField(0)
   final int id;
+  @HiveField(1)
   final String name;
+  @HiveField(2)
   final String? description;
+  @HiveField(3)
   final String color;
+  @HiveField(4)
   final int ownerId;
+  @HiveField(5)
   final DateTime createdAt;
+  @HiveField(6)
   final DateTime updatedAt;
 
   Project({
@@ -152,29 +186,53 @@ class Project {
   }
 }
 
+@HiveType(typeId: 5)
 class Task {
+  @HiveField(0)
   final int id;
+  @HiveField(1)
   final String title;
+  @HiveField(2)
   final String? notes;
+  @HiveField(3)
   final String? description;
+  @HiveField(4)
   final String column;
+  @HiveField(5)
   final int estimatedTime;
+  @HiveField(6)
   final int actualTime;
+  @HiveField(7)
   final String? taskType;
+  @HiveField(8)
   final String? taskPriority;
+  @HiveField(9)
   final TaskPriority priority;
+  @HiveField(10)
   final TaskStatus status;
+  @HiveField(11)
   final List<String>? tags;
+  @HiveField(12)
   final int? estimatedPomodoros;
+  @HiveField(13)
   final DateTime? dueDate;
+  @HiveField(14)
   final bool reminderEnabled;
+  @HiveField(15)
   final int reminderOffset;
+  @HiveField(16)
   final bool isUrgent;
+  @HiveField(17)
   final bool isImportant;
+  @HiveField(18)
   final int projectId;
+  @HiveField(19)
   final int ownerId;
+  @HiveField(20)
   final DateTime createdAt;
+  @HiveField(21)
   final DateTime updatedAt;
+  @HiveField(22)
   final DateTime? completedAt;
 
   Task({
@@ -257,6 +315,59 @@ class Task {
       'updated_at': updatedAt.toIso8601String(),
       'completed_at': completedAt?.toIso8601String(),
     };
+  }
+
+  // Create a copy of the task with updated fields
+  Task copyWith({
+    int? id,
+    String? title,
+    String? notes,
+    String? description,
+    String? column,
+    int? estimatedTime,
+    int? actualTime,
+    String? taskType,
+    String? taskPriority,
+    TaskPriority? priority,
+    TaskStatus? status,
+    List<String>? tags,
+    int? estimatedPomodoros,
+    DateTime? dueDate,
+    bool? reminderEnabled,
+    int? reminderOffset,
+    bool? isUrgent,
+    bool? isImportant,
+    int? projectId,
+    int? ownerId,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+    DateTime? completedAt,
+  }) {
+    return Task(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      notes: notes ?? this.notes,
+      description: description ?? this.description,
+      column: column ?? this.column,
+      estimatedTime: estimatedTime ?? this.estimatedTime,
+      actualTime: actualTime ?? this.actualTime,
+      taskType: taskType ?? this.taskType,
+      taskPriority: taskPriority ?? this.taskPriority,
+      priority: priority ?? this.priority,
+      status: status ?? this.status,
+      tags: tags ?? this.tags,
+      estimatedPomodoros: estimatedPomodoros ?? this.estimatedPomodoros,
+      dueDate: dueDate ?? this.dueDate,
+      reminderEnabled: reminderEnabled ?? this.reminderEnabled,
+      reminderOffset: reminderOffset ?? this.reminderOffset,
+      isUrgent: isUrgent ?? this.isUrgent,
+      isImportant: isImportant ?? this.isImportant,
+      projectId: projectId ?? this.projectId,
+      ownerId: ownerId ?? this.ownerId,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      completedAt: completedAt ?? this.completedAt,
+    );
   }
 
   // Helper methods for better UI display

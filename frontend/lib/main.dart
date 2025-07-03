@@ -7,8 +7,8 @@ import 'package:hive_flutter/hive_flutter.dart';
 
 import 'models/models.dart';
 import 'providers/auth_provider.dart';
-import 'providers/simple_task_provider.dart';
-import 'providers/simple_project_provider.dart';
+import 'providers/persistent_task_provider.dart';
+import 'providers/persistent_project_provider.dart';
 import 'providers/theme_provider.dart';
 import 'screens/splash_screen.dart';
 import 'screens/login_screen.dart';
@@ -37,22 +37,52 @@ class BlitzitApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
         ChangeNotifierProvider(create: (_) => AuthProvider()),
-        ChangeNotifierProvider(create: (_) => SimpleTaskProvider()),
-        ChangeNotifierProvider(create: (_) => SimpleProjectProvider()),
+        ChangeNotifierProvider(create: (_) => PersistentTaskProvider()),
+        ChangeNotifierProvider(create: (_) => PersistentProjectProvider()),
       ],
       child: Consumer<ThemeProvider>(
         builder: (context, themeProvider, child) {
-          return MaterialApp.router(
-            title: 'Blitzit - Modern Productivity Hub',
-            debugShowCheckedModeBanner: false,
-            theme: AppTheme.lightTheme(null),
-            darkTheme: AppTheme.darkTheme(null),
-            themeMode: themeProvider.themeMode,
-            routerConfig: _router,
+          return FutureBuilder(
+            future: _initializeProviders(context),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return MaterialApp(
+                  title: 'Blitzit - Modern Productivity Hub',
+                  debugShowCheckedModeBanner: false,
+                  theme: AppTheme.lightTheme(null),
+                  darkTheme: AppTheme.darkTheme(null),
+                  themeMode: themeProvider.themeMode,
+                  home: const Scaffold(
+                    body: Center(
+                      child: CircularProgressIndicator(),
+                    ),
+                  ),
+                );
+              }
+              
+              return MaterialApp.router(
+                title: 'Blitzit - Modern Productivity Hub',
+                debugShowCheckedModeBanner: false,
+                theme: AppTheme.lightTheme(null),
+                darkTheme: AppTheme.darkTheme(null),
+                themeMode: themeProvider.themeMode,
+                routerConfig: _router,
+              );
+            },
           );
         },
       ),
     );
+  }
+
+  Future<void> _initializeProviders(BuildContext context) async {
+    final taskProvider = Provider.of<PersistentTaskProvider>(context, listen: false);
+    final projectProvider = Provider.of<PersistentProjectProvider>(context, listen: false);
+    
+    await Future.wait([
+      taskProvider.initialize(),
+      projectProvider.initialize(),
+    ]);
   }
 }
 

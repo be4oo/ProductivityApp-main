@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import '../models/models.dart';
-import '../providers/simple_task_provider.dart';
+import '../providers/persistent_task_provider.dart';
 import 'task_dialog.dart';
 
 class TaskItem extends StatefulWidget {
@@ -324,11 +324,8 @@ class _TaskItemState extends State<TaskItem> with SingleTickerProviderStateMixin
   }
 
   void _markComplete() {
-    final taskProvider = Provider.of<SimpleTaskProvider>(context, listen: false);
-    taskProvider.updateTask(
-      widget.task.id,
-      status: TaskStatus.completed,
-    );
+    final taskProvider = Provider.of<PersistentTaskProvider>(context, listen: false);
+    taskProvider.toggleTaskCompletion(widget.task.id);
   }
 
   void _showDeleteDialog() {
@@ -358,8 +355,17 @@ class _TaskItemState extends State<TaskItem> with SingleTickerProviderStateMixin
   }
 
   void _deleteTask() {
-    final taskProvider = Provider.of<SimpleTaskProvider>(context, listen: false);
+    final taskProvider = Provider.of<PersistentTaskProvider>(context, listen: false);
     taskProvider.deleteTask(widget.task.id);
+  }
+
+  void _startFocusMode() {
+    context.push('/focus', extra: widget.task);
+  }
+
+  void _toggleTaskCompletion() {
+    final taskProvider = Provider.of<PersistentTaskProvider>(context, listen: false);
+    taskProvider.toggleTaskCompletion(widget.task.id);
   }
 
   IconData _getPriorityIcon(TaskPriority priority) {
