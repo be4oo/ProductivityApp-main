@@ -61,7 +61,7 @@ class ProjectSidebar extends StatelessWidget {
                         width: 12,
                         height: 12,
                         decoration: BoxDecoration(
-                          color: Color(int.parse(project.color.replaceAll('#', '0xFF'))),
+                          color: projectProvider.getProjectColor(project.id),
                           shape: BoxShape.circle,
                         ),
                       ),

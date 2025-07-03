@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import '../providers/auth_provider.dart';
-import '../providers/simple_project_provider.dart';
-import '../providers/simple_task_provider.dart';
+import '../providers/persistent_project_provider.dart';
+import '../providers/persistent_task_provider.dart';
 import '../providers/theme_provider.dart';
 import '../widgets/dashboard_stats_widget.dart';
 import '../widgets/project_sidebar.dart';
@@ -41,8 +41,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   Future<void> _loadData() async {
-    final projectProvider = Provider.of<SimpleProjectProvider>(context, listen: false);
-    final taskProvider = Provider.of<SimpleTaskProvider>(context, listen: false);
+    final projectProvider = Provider.of<PersistentProjectProvider>(context, listen: false);
+    final taskProvider = Provider.of<PersistentTaskProvider>(context, listen: false);
     
     await projectProvider.loadProjects();
     await taskProvider.loadTasks();
@@ -366,10 +366,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   void _showAddTaskDialog() {
-    final projectProvider = Provider.of<SimpleProjectProvider>(context, listen: false);
-    final selectedProject = projectProvider.selectedProject;
+    final projectProvider = Provider.of<PersistentProjectProvider>(context, listen: false);
+    final selectedProjectId = projectProvider.selectedProjectId;
     
-    if (selectedProject == null) {
+    if (selectedProjectId == null) {
       // Show create project dialog first
       showDialog(
         context: context,
@@ -397,7 +397,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     showDialog(
       context: context,
       builder: (context) => TaskDialog(
-        projectId: selectedProject.id,
+        projectId: selectedProjectId,
       ),
     );
   }

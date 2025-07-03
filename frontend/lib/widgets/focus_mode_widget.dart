@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 import 'dart:async';
 import '../models/models.dart';
 import '../providers/persistent_task_provider.dart';
+import 'floating_timer_widget.dart';
+import 'celebration_widget.dart';
 
 class FocusModeWidget extends StatefulWidget {
   final Task task;
@@ -18,10 +20,12 @@ class _FocusModeWidgetState extends State<FocusModeWidget>
   Timer? _timer;
   int _remainingSeconds = 25 * 60; // 25 minutes in seconds
   int _totalSeconds = 25 * 60;
+  int _sessionElapsed = 0;
   bool _isRunning = false;
   bool _isPaused = false;
   int _completedPomodoros = 0;
   bool _isBreakTime = false;
+  bool _isInMiniMode = false;
   
   late AnimationController _progressController;
   late AnimationController _pulseController;
@@ -31,6 +35,12 @@ class _FocusModeWidgetState extends State<FocusModeWidget>
   @override
   void initState() {
     super.initState();
+    
+    // Set up timer based on estimated time or default to 25 minutes
+    final estimatedMinutes = widget.task.estimatedTime ?? 25;
+    _totalSeconds = estimatedMinutes * 60;
+    _remainingSeconds = _totalSeconds;
+    
     _progressController = AnimationController(
       vsync: this,
       duration: Duration(seconds: _totalSeconds),
@@ -79,9 +89,10 @@ class _FocusModeWidgetState extends State<FocusModeWidget>
       if (_remainingSeconds > 0) {
         setState(() {
           _remainingSeconds--;
+          _sessionElapsed++;
         });
       } else {
-        _completePomodoro();
+        _completeSession();
       }
     });
   }
@@ -110,16 +121,18 @@ class _FocusModeWidgetState extends State<FocusModeWidget>
     setState(() {
       _isRunning = false;
       _isPaused = false;
-      _remainingSeconds = _isBreakTime ? 5 * 60 : 25 * 60;
+      _remainingSeconds = _isBreakTime ? 5 * 60 : _totalSeconds;
+      _sessionElapsed = 0;
     });
     
     _timer?.cancel();
     _progressController.reset();
   }
 
-  void _completePomodoro() {
+  void _completeSession() {
     _timer?.cancel();
     _progressController.reset();
+    _saveProgress();
     
     setState(() {
       _isRunning = false;
@@ -128,16 +141,102 @@ class _FocusModeWidgetState extends State<FocusModeWidget>
       if (_isBreakTime) {
         // Break completed, back to work
         _isBreakTime = false;
-        _remainingSeconds = 25 * 60;
+        _remainingSeconds = _totalSeconds;
       } else {
         // Pomodoro completed
         _completedPomodoros++;
         _isBreakTime = true;
         _remainingSeconds = _completedPomodoros % 4 == 0 ? 15 * 60 : 5 * 60; // Long break every 4 pomodoros
       }
+      _sessionElapsed = 0;
     });
     
-    _showCompletionDialog();
+    _showCelebration();
+  }
+  
+  void _saveProgress() {
+    final taskProvider = Provider.of<PersistentTaskProvider>(context, listen: false);
+    final currentActualTime = widget.task.actualTime ?? 0;
+    final additionalMinutes = (_sessionElapsed / 60).round();
+    
+    if (additionalMinutes > 0) {
+      final updatedTask = Task(
+        id: widget.task.id,
+        title: widget.task.title,
+        description: widget.task.description,
+        column: widget.task.column,
+        estimatedTime: widget.task.estimatedTime,
+        actualTime: currentActualTime + additionalMinutes,
+        priority: widget.task.priority,
+        status: widget.task.status,
+        reminderEnabled: widget.task.reminderEnabled,
+        reminderOffset: widget.task.reminderOffset,
+        isUrgent: widget.task.isUrgent,
+        isImportant: widget.task.isImportant,
+        projectId: widget.task.projectId,
+        ownerId: widget.task.ownerId,
+        createdAt: widget.task.createdAt,
+        updatedAt: DateTime.now(),
+        completedAt: widget.task.completedAt,
+        dueDate: widget.task.dueDate,
+        tags: widget.task.tags,
+        estimatedPomodoros: widget.task.estimatedPomodoros,
+      );
+      taskProvider.updateTask(updatedTask);
+    }
+  }
+  
+  void _showCelebration() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => CelebrationWidget(
+        onComplete: () {
+          Navigator.of(context).pop();
+          _showCompletionDialog();
+        },
+      ),
+    );
+  }
+
+  void _skipToNext() {
+    _timer?.cancel();
+    _saveProgress();
+    Navigator.of(context).pop();
+  }
+
+  void _enterMiniMode() {
+    setState(() {
+      _isInMiniMode = true;
+    });
+    
+    Navigator.of(context).pop();
+    
+    // Show floating timer widget
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => FloatingTimerWidget(
+        task: widget.task,
+        remainingSeconds: _remainingSeconds,
+        isRunning: _isRunning,
+        isPaused: _isPaused,
+        onEnlarge: () {
+          Navigator.of(context).pop();
+          setState(() {
+            _isInMiniMode = false;
+          });
+        },
+        onComplete: () {
+          Navigator.of(context).pop();
+          _completeSession();
+        },
+        onSkip: () {
+          Navigator.of(context).pop();
+          _skipToNext();
+        },
+      ),
+    );
   }
 
   void _showCompletionDialog() {
@@ -349,6 +448,52 @@ class _FocusModeWidgetState extends State<FocusModeWidget>
                       padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
                     ),
                   ),
+                
+                if (_isRunning || _isPaused) ...[
+                  const SizedBox(width: 16),
+                  FilledButton.icon(
+                    onPressed: _completeSession,
+                    icon: const Icon(Icons.check_circle),
+                    label: const Text('Done'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            
+            const SizedBox(height: 16),
+            
+            // Secondary Controls
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                TextButton.icon(
+                  onPressed: () {
+                    // Take a break (reset to break time)
+                    setState(() {
+                      _isBreakTime = true;
+                      _remainingSeconds = 5 * 60;
+                    });
+                    _resetTimer();
+                  },
+                  icon: const Icon(Icons.coffee),
+                  label: const Text('Take a Break'),
+                ),
+                const SizedBox(width: 16),
+                TextButton.icon(
+                  onPressed: _skipToNext,
+                  icon: const Icon(Icons.skip_next),
+                  label: const Text('Skip Task'),
+                ),
+                const SizedBox(width: 16),
+                TextButton.icon(
+                  onPressed: _enterMiniMode,
+                  icon: const Icon(Icons.picture_in_picture),
+                  label: const Text('Mini Mode'),
+                ),
               ],
             ),
             
