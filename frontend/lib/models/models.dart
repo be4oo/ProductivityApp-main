@@ -15,7 +15,7 @@ enum TaskPriority {
   urgent,
 }
 
-// Task Status Enum  
+// Task Status Enum
 @HiveType(typeId: 1)
 enum TaskStatus {
   @HiveField(0)
@@ -276,7 +276,8 @@ class Task {
       status: TaskStatus.values[json['status'] ?? 0],
       tags: json['tags'] != null ? List<String>.from(json['tags']) : null,
       estimatedPomodoros: json['estimated_pomodoros'],
-      dueDate: json['due_date'] != null ? DateTime.parse(json['due_date']) : null,
+      dueDate:
+          json['due_date'] != null ? DateTime.parse(json['due_date']) : null,
       reminderEnabled: json['reminder_enabled'],
       reminderOffset: json['reminder_offset'],
       isUrgent: json['is_urgent'],
@@ -285,7 +286,9 @@ class Task {
       ownerId: json['owner_id'],
       createdAt: DateTime.parse(json['created_at']),
       updatedAt: DateTime.parse(json['updated_at']),
-      completedAt: json['completed_at'] != null ? DateTime.parse(json['completed_at']) : null,
+      completedAt: json['completed_at'] != null
+          ? DateTime.parse(json['completed_at'])
+          : null,
     );
   }
 
@@ -342,6 +345,7 @@ class Task {
     DateTime? createdAt,
     DateTime? updatedAt,
     DateTime? completedAt,
+    bool clearCompletedAt = false,
   }) {
     return Task(
       id: id ?? this.id,
@@ -366,7 +370,7 @@ class Task {
       ownerId: ownerId ?? this.ownerId,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
-      completedAt: completedAt ?? this.completedAt,
+      completedAt: clearCompletedAt ? null : completedAt ?? this.completedAt,
     );
   }
 
@@ -407,16 +411,18 @@ class Task {
   }
 
   bool get isOverdue {
-    return dueDate != null && dueDate!.isBefore(DateTime.now()) && status != TaskStatus.completed;
+    return dueDate != null &&
+        dueDate!.isBefore(DateTime.now()) &&
+        status != TaskStatus.completed;
   }
 
   String get dueDateDisplay {
     if (dueDate == null) return '';
-    
+
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final taskDate = DateTime(dueDate!.year, dueDate!.month, dueDate!.day);
-    
+
     if (taskDate == today) {
       return 'Today';
     } else if (taskDate == today.add(const Duration(days: 1))) {

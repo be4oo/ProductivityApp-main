@@ -3,22 +3,30 @@ import 'package:hive_flutter/hive_flutter.dart';
 import '../models/models.dart';
 
 class PersistentProjectProvider with ChangeNotifier {
-  late Box<Project> _projectBox;
+  Box<Project>? _projectBox;
+  Box<int>? _projectMetadataBox;
   List<Project> _projects = [];
   int _nextProjectId = 1;
   int? _selectedProjectId;
   bool _isInitialized = false;
-  
+  String? _initializationError;
+
   List<Project> get projects => _projects;
   int? get selectedProjectId => _selectedProjectId;
   bool get isInitialized => _isInitialized;
+  String? get initializationError => _initializationError;
 
-  Future<void> initialize() async {
+  Future<void> initialize({String? storagePath}) async {
     if (_isInitialized) return;
-    
+    _initializationError = null;
+
     try {
-      await Hive.initFlutter();
-      
+      if (storagePath == null) {
+        await Hive.initFlutter();
+      } else {
+        Hive.init(storagePath);
+      }
+
       // Register adapters if not already registered
       if (!Hive.isAdapterRegistered(0)) {
         Hive.registerAdapter(TaskPriorityAdapter());
@@ -38,30 +46,49 @@ class PersistentProjectProvider with ChangeNotifier {
       if (!Hive.isAdapterRegistered(5)) {
         Hive.registerAdapter(TaskAdapter());
       }
-      
-      _projectBox = await Hive.openBox<Project>('projects');
+
+      final boxAlreadyExists = await Hive.boxExists('projects');
+      _projectBox = await _openStorageBox<Project>('projects');
+      _projectMetadataBox = await _openStorageBox<int>('project_metadata');
       _loadProjects();
-      
-      // Add sample projects if the box is empty
-      if (_projects.isEmpty) {
+      final savedNextId = _projectMetadataBox!.get('next_id') ?? 1;
+      if (savedNextId > _nextProjectId) _nextProjectId = savedNextId;
+      // Existing installs keep all entity IDs; only the next-ID counter is new.
+      await _projectMetadataBox!.put('next_id', _nextProjectId);
+      _isInitialized = true;
+
+      // Seed only a new store; an intentionally empty store must stay empty.
+      if (!boxAlreadyExists && _projects.isEmpty) {
         await _addSampleProjects();
       }
-      
+
       _isInitialized = true;
       notifyListeners();
     } catch (e) {
-      print('Error initializing PersistentProjectProvider: $e');
-      // Fallback to in-memory storage
-      await _addSampleProjects();
-      _isInitialized = true;
+      debugPrint('Error initializing PersistentProjectProvider: $e');
+      _isInitialized = false;
+      _initializationError =
+          'Project storage could not be opened. Please restart the app to try again.';
       notifyListeners();
     }
   }
 
+  Future<Box<T>> _openStorageBox<T>(String name) async {
+    // Hive 2.x also completes a shared opening future on failure. A second
+    // observer handles that future, preventing an uncaught duplicate error
+    // while still reporting the original open failure to initialize().
+    final opening = Hive.openBox<T>(name);
+    final sharedOpening = Hive.openBox<T>(name);
+    return (await Future.wait([opening, sharedOpening])).first;
+  }
+
   void _loadProjects() {
-    _projects = _projectBox.values.toList();
+    _projects = _projectBox!.values.toList();
     if (_projects.isNotEmpty) {
-      _nextProjectId = _projects.map((p) => p.id).reduce((a, b) => a > b ? a : b) + 1;
+      final nextId =
+          _projects.map((value) => value.id).reduce((a, b) => a > b ? a : b) +
+              1;
+      if (nextId > _nextProjectId) _nextProjectId = nextId;
     }
   }
 
@@ -105,38 +132,32 @@ class PersistentProjectProvider with ChangeNotifier {
       ),
     ];
 
+    await _projectMetadataBox!.put('next_id', _nextProjectId);
     for (final project in sampleProjects) {
       await _saveProject(project);
     }
   }
 
   Future<void> _saveProject(Project project) async {
-    try {
-      if (_isInitialized) {
-        await _projectBox.put(project.id, project);
-      }
-      
-      final index = _projects.indexWhere((p) => p.id == project.id);
-      if (index >= 0) {
-        _projects[index] = project;
-      } else {
-        _projects.add(project);
-      }
-    } catch (e) {
-      print('Error saving project: $e');
-      // Fallback to in-memory storage
-      final index = _projects.indexWhere((p) => p.id == project.id);
-      if (index >= 0) {
-        _projects[index] = project;
-      } else {
-        _projects.add(project);
-      }
+    if (!_isInitialized) throw StateError('Project storage is unavailable');
+    // Do not acknowledge a change until its durable write has succeeded.
+    await _projectBox!.put(project.id, project);
+    final index = _projects.indexWhere((value) => value.id == project.id);
+    if (index >= 0) {
+      _projects[index] = project;
+    } else {
+      _projects.add(project);
     }
   }
 
   Future<void> createProject(Project project) async {
+    if (!_isInitialized) throw StateError('Project storage is unavailable');
+    final id = _nextProjectId++;
+    // Persist the reservation first. A failed record write may leave a gap,
+    // but deleted IDs must never be reused after a restart.
+    await _projectMetadataBox!.put('next_id', _nextProjectId);
     final newProject = Project(
-      id: _nextProjectId++,
+      id: id,
       name: project.name,
       description: project.description,
       color: project.color,
@@ -144,7 +165,7 @@ class PersistentProjectProvider with ChangeNotifier {
       createdAt: DateTime.now(),
       updatedAt: DateTime.now(),
     );
-    
+
     await _saveProject(newProject);
     notifyListeners();
   }
@@ -159,34 +180,19 @@ class PersistentProjectProvider with ChangeNotifier {
       createdAt: project.createdAt,
       updatedAt: DateTime.now(),
     );
-    
+
     await _saveProject(updatedProject);
     notifyListeners();
   }
 
   Future<void> deleteProject(int projectId) async {
-    try {
-      if (_isInitialized) {
-        await _projectBox.delete(projectId);
-      }
-      _projects.removeWhere((project) => project.id == projectId);
-      
-      // Clear selection if the deleted project was selected
-      if (_selectedProjectId == projectId) {
-        _selectedProjectId = null;
-      }
-      
-      notifyListeners();
-    } catch (e) {
-      print('Error deleting project: $e');
-      _projects.removeWhere((project) => project.id == projectId);
-      
-      if (_selectedProjectId == projectId) {
-        _selectedProjectId = null;
-      }
-      
-      notifyListeners();
+    if (!_isInitialized) throw StateError('Project storage is unavailable');
+    await _projectBox!.delete(projectId);
+    _projects.removeWhere((project) => project.id == projectId);
+    if (_selectedProjectId == projectId) {
+      _selectedProjectId = null;
     }
+    notifyListeners();
   }
 
   void selectProject(int? projectId) {
@@ -210,8 +216,16 @@ class PersistentProjectProvider with ChangeNotifier {
   Color getProjectColor(int projectId) {
     final project = getProjectById(projectId);
     if (project == null) return Colors.grey;
-    
-    switch (project.color.toLowerCase()) {
+
+    final color = project.color.trim();
+    if (color.startsWith('#')) {
+      final hex = color.substring(1);
+      final value = int.tryParse(hex, radix: 16);
+      if (value != null && (hex.length == 6 || hex.length == 8)) {
+        return Color(hex.length == 6 ? value | 0xFF000000 : value);
+      }
+    }
+    switch (color.toLowerCase()) {
       case 'blue':
         return Colors.blue;
       case 'green':
@@ -242,11 +256,17 @@ class PersistentProjectProvider with ChangeNotifier {
     }
   }
 
+  @override
   Future<void> dispose() async {
     try {
-      await _projectBox.close();
+      await _projectBox?.close();
     } catch (e) {
-      print('Error closing project box: $e');
+      debugPrint('Error closing project box: $e');
+    }
+    try {
+      await _projectMetadataBox?.close();
+    } catch (e) {
+      debugPrint('Error closing project metadata box: $e');
     }
     super.dispose();
   }

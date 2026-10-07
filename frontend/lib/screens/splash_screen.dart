@@ -44,7 +44,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
     // Navigate to login after animation
     Future.delayed(const Duration(seconds: 3), () {
       if (mounted) {
-        context.go('/login');
+        context.go('/auth');
       }
     });
   }

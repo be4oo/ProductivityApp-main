@@ -1,0 +1,47 @@
+name: macOS companion candidate
+on:
+  pull_request:
+    paths: ['frontend/**', 'scripts/macos-candidate-smoke.sh', '.github/workflows/macos-companion.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  candidate:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned official Flutter SDK
+        run: |
+          git clone --depth 1 --branch 3.32.8 https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+      - name: Dependencies
+        working-directory: frontend
+        run: flutter pub get
+      - name: Companion analysis
+        working-directory: frontend
+        run: flutter analyze lib/companion lib/main_companion.dart lib/providers/persistent_task_provider.dart lib/providers/persistent_project_provider.dart lib/widgets/task_dialog.dart lib/widgets/project_dialog.dart test
+      - name: Tests
+        working-directory: frontend
+        run: flutter test
+      - name: Build native candidate
+        working-directory: frontend
+        run: flutter build macos --release --target lib/main_companion.dart
+      - name: Native launch smoke test
+        run: |
+          APP=$(find frontend/build/macos/Build/Products/Release -maxdepth 1 -name '*.app' -print -quit)
+          bash scripts/macos-candidate-smoke.sh "$APP" macos-runtime-smoke.log
+      - name: Package candidate
+        run: |
+          APP=$(find frontend/build/macos/Build/Products/Release -maxdepth 1 -name '*.app' -print -quit)
+          test -n "$APP"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" Blitzit-macOS-candidate.zip
+          shasum -a 256 Blitzit-macOS-candidate.zip > Blitzit-macOS-candidate.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Blitzit-macOS-candidate
+          path: |
+            Blitzit-macOS-candidate.zip
+            Blitzit-macOS-candidate.sha256
+            macos-runtime-smoke.log
+          retention-days: 14
