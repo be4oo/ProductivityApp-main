@@ -11,6 +11,8 @@ class FocusSession extends ChangeNotifier {
   DateTime? _lastSample;
   Future<void> _writes = Future.value();
   String? loggingError;
+  final Map<int, int> _failedMinutes = {};
+  bool _disposed = false;
   final DateTime Function() _now;
   Timer? _ticker;
   DateTime? _deadline;
@@ -87,12 +89,32 @@ class FocusSession extends ChangeNotifier {
     final minutes = total.inMinutes;
     _unlogged[id] = total - Duration(minutes: minutes);
     if (minutes > 0 && onMinutesLogged != null) {
-      _writes = _writes.then((_) => onMinutesLogged!(id, minutes)).catchError((
-        Object error,
-      ) {
-        loggingError = 'Focus time could not be saved';
-      });
+      _enqueueMinutes(id, minutes);
     }
+  }
+
+  void _enqueueMinutes(int id, int minutes) {
+    _writes = _writes.then((_) async {
+      try {
+        await onMinutesLogged!(id, minutes);
+      } catch (_) {
+        _failedMinutes[id] = (_failedMinutes[id] ?? 0) + minutes;
+        loggingError = 'Focus time not saved. Retry in planner.';
+        if (!_disposed) notifyListeners();
+      }
+    });
+  }
+
+  Future<void> retryLogging() async {
+    await _writes;
+    final pending = Map<int, int>.of(_failedMinutes);
+    _failedMinutes.clear();
+    loggingError = null;
+    for (final entry in pending.entries) {
+      _enqueueMinutes(entry.key, entry.value);
+    }
+    await _writes;
+    if (!_disposed) notifyListeners();
   }
 
   void _stop() {
@@ -106,9 +128,13 @@ class FocusSession extends ChangeNotifier {
   void dispose() {
     _accountElapsed();
     _stop();
+    _disposed = true;
     super.dispose();
   }
 }
+
+bool isCompletedTask(Task task) =>
+    task.status == TaskStatus.completed || task.status == TaskStatus.done;
 
 bool isOpenTask(Task task) =>
     task.status != TaskStatus.completed &&

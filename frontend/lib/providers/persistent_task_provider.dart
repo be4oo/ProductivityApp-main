@@ -3,24 +3,28 @@ import 'package:hive_flutter/hive_flutter.dart';
 import '../models/models.dart';
 
 class PersistentTaskProvider with ChangeNotifier {
-  late Box<Task> _taskBox;
+  Box<Task>? _taskBox;
+  Box<int>? _taskMetadataBox;
   List<Task> _tasks = [];
   int _nextTaskId = 1;
   bool _isInitialized = false;
-  
+  String? _initializationError;
+
   List<Task> get tasks => _tasks;
   bool get isInitialized => _isInitialized;
+  String? get initializationError => _initializationError;
 
   Future<void> initialize({String? storagePath}) async {
     if (_isInitialized) return;
-    
+    _initializationError = null;
+
     try {
       if (storagePath == null) {
         await Hive.initFlutter();
       } else {
         Hive.init(storagePath);
       }
-      
+
       // Register adapters
       if (!Hive.isAdapterRegistered(0)) {
         Hive.registerAdapter(TaskPriorityAdapter());
@@ -40,31 +44,48 @@ class PersistentTaskProvider with ChangeNotifier {
       if (!Hive.isAdapterRegistered(5)) {
         Hive.registerAdapter(TaskAdapter());
       }
-      
-      _taskBox = await Hive.openBox<Task>('tasks');
+
+      final boxAlreadyExists = await Hive.boxExists('tasks');
+      _taskBox = await _openStorageBox<Task>('tasks');
+      _taskMetadataBox = await _openStorageBox<int>('task_metadata');
       _loadTasks();
+      final savedNextId = _taskMetadataBox!.get('next_id') ?? 1;
+      if (savedNextId > _nextTaskId) _nextTaskId = savedNextId;
+      // Existing installs keep all entity IDs; only the next-ID counter is new.
+      await _taskMetadataBox!.put('next_id', _nextTaskId);
       _isInitialized = true;
-      
-      // Add sample tasks if the box is empty
-      if (_tasks.isEmpty) {
+
+      // Seed only a new store; an intentionally empty store must stay empty.
+      if (!boxAlreadyExists && _tasks.isEmpty) {
         await _addSampleTasks();
       }
-      
+
       _isInitialized = true;
       notifyListeners();
     } catch (e) {
-      print('Error initializing PersistentTaskProvider: $e');
-      // Fallback to in-memory storage
-      await _addSampleTasks();
-      _isInitialized = true;
+      debugPrint('Error initializing PersistentTaskProvider: $e');
+      _isInitialized = false;
+      _initializationError =
+          'Task storage could not be opened. Please restart the app to try again.';
       notifyListeners();
     }
   }
 
+  Future<Box<T>> _openStorageBox<T>(String name) async {
+    // Hive 2.x also completes a shared opening future on failure. A second
+    // observer handles that future, preventing an uncaught duplicate error
+    // while still reporting the original open failure to initialize().
+    final opening = Hive.openBox<T>(name);
+    final sharedOpening = Hive.openBox<T>(name);
+    return (await Future.wait([opening, sharedOpening])).first;
+  }
+
   void _loadTasks() {
-    _tasks = _taskBox.values.toList();
+    _tasks = _taskBox!.values.toList();
     if (_tasks.isNotEmpty) {
-      _nextTaskId = _tasks.map((t) => t.id).reduce((a, b) => a > b ? a : b) + 1;
+      final nextId =
+          _tasks.map((value) => value.id).reduce((a, b) => a > b ? a : b) + 1;
+      if (nextId > _nextTaskId) _nextTaskId = nextId;
     }
   }
 
@@ -113,7 +134,8 @@ class PersistentTaskProvider with ChangeNotifier {
       Task(
         id: _nextTaskId++,
         title: 'Fix responsive layout bug',
-        description: 'The mobile layout is not working correctly on small screens',
+        description:
+            'The mobile layout is not working correctly on small screens',
         column: 'To Do',
         estimatedTime: 120,
         actualTime: 0,
@@ -133,7 +155,8 @@ class PersistentTaskProvider with ChangeNotifier {
       Task(
         id: _nextTaskId++,
         title: 'Research new UI library',
-        description: 'Look into modern UI libraries for better component design',
+        description:
+            'Look into modern UI libraries for better component design',
         column: 'Backlog',
         estimatedTime: 180,
         actualTime: 30,
@@ -173,42 +196,36 @@ class PersistentTaskProvider with ChangeNotifier {
       ),
     ];
 
+    await _taskMetadataBox!.put('next_id', _nextTaskId);
     for (final task in sampleTasks) {
       await _saveTask(task);
     }
   }
 
   Future<void> _saveTask(Task task) async {
-    try {
-      if (_isInitialized) {
-        await _taskBox.put(task.id, task);
-      }
-      
-      final index = _tasks.indexWhere((t) => t.id == task.id);
-      if (index >= 0) {
-        _tasks[index] = task;
-      } else {
-        _tasks.add(task);
-      }
-    } catch (e) {
-      print('Error saving task: $e');
-      // Fallback to in-memory storage
-      final index = _tasks.indexWhere((t) => t.id == task.id);
-      if (index >= 0) {
-        _tasks[index] = task;
-      } else {
-        _tasks.add(task);
-      }
+    if (!_isInitialized) throw StateError('Task storage is unavailable');
+    // Do not acknowledge a change until its durable write has succeeded.
+    await _taskBox!.put(task.id, task);
+    final index = _tasks.indexWhere((value) => value.id == task.id);
+    if (index >= 0) {
+      _tasks[index] = task;
+    } else {
+      _tasks.add(task);
     }
   }
 
   Future<void> createTask(Task task) async {
+    if (!_isInitialized) throw StateError('Task storage is unavailable');
+    final id = _nextTaskId++;
+    // Persist the reservation first. A failed record write may leave a gap,
+    // but deleted IDs must never be reused after a restart.
+    await _taskMetadataBox!.put('next_id', _nextTaskId);
     final newTask = task.copyWith(
-      id: _nextTaskId++,
+      id: id,
       createdAt: DateTime.now(),
       updatedAt: DateTime.now(),
     );
-    
+
     await _saveTask(newTask);
     notifyListeners();
   }
@@ -220,23 +237,17 @@ class PersistentTaskProvider with ChangeNotifier {
   }
 
   Future<void> deleteTask(int taskId) async {
-    try {
-      if (_isInitialized) {
-        await _taskBox.delete(taskId);
-      }
-      _tasks.removeWhere((task) => task.id == taskId);
-      notifyListeners();
-    } catch (e) {
-      print('Error deleting task: $e');
-      _tasks.removeWhere((task) => task.id == taskId);
-      notifyListeners();
-    }
+    if (!_isInitialized) throw StateError('Task storage is unavailable');
+    await _taskBox!.delete(taskId);
+    _tasks.removeWhere((task) => task.id == taskId);
+    notifyListeners();
   }
 
   Future<void> toggleTaskCompletion(int taskId) async {
     final task = _tasks.firstWhere((t) => t.id == taskId);
-    final isCompleted = task.status == TaskStatus.completed;
-    
+    final isCompleted =
+        task.status == TaskStatus.completed || task.status == TaskStatus.done;
+
     final updatedTask = task.copyWith(
       status: isCompleted ? TaskStatus.todo : TaskStatus.completed,
       completedAt: isCompleted ? null : DateTime.now(),
@@ -244,10 +255,10 @@ class PersistentTaskProvider with ChangeNotifier {
       column: isCompleted ? 'To Do' : 'Done',
       updatedAt: DateTime.now(),
     );
-    
+
     // Completion must be durable before the UI acknowledges success.
     if (!_isInitialized) throw StateError('Task storage is unavailable');
-    await _taskBox.put(taskId, updatedTask);
+    await _taskBox!.put(taskId, updatedTask);
     final index = _tasks.indexWhere((task) => task.id == taskId);
     if (index >= 0) _tasks[index] = updatedTask;
     notifyListeners();
@@ -263,9 +274,12 @@ class PersistentTaskProvider with ChangeNotifier {
 
   Future<void> moveTaskToColumn(int taskId, String newColumn) async {
     final task = _tasks.firstWhere((t) => t.id == taskId);
-    final status = newColumn == 'Done' ? TaskStatus.completed : 
-                   newColumn == 'In Progress' ? TaskStatus.inProgress : TaskStatus.todo;
-    
+    final status = newColumn == 'Done'
+        ? TaskStatus.completed
+        : newColumn == 'In Progress'
+            ? TaskStatus.inProgress
+            : TaskStatus.todo;
+
     final updatedTask = task.copyWith(
       column: newColumn,
       status: status,
@@ -273,36 +287,48 @@ class PersistentTaskProvider with ChangeNotifier {
       clearCompletedAt: newColumn != 'Done',
       updatedAt: DateTime.now(),
     );
-    
+
     await updateTask(updatedTask);
   }
 
-  Future<void> updateTaskUrgencyImportance(int taskId, bool isUrgent, bool isImportant) async {
+  Future<void> updateTaskUrgencyImportance(
+      int taskId, bool isUrgent, bool isImportant) async {
     final task = _tasks.firstWhere((t) => t.id == taskId);
     final updatedTask = task.copyWith(
       isUrgent: isUrgent,
       isImportant: isImportant,
       updatedAt: DateTime.now(),
     );
-    
+
     await updateTask(updatedTask);
   }
 
   DashboardStats? get dashboardStats {
     if (_tasks.isEmpty) return null;
-    
-    final completedTasks = _tasks.where((t) => t.status == TaskStatus.completed).length;
+
+    final completedTasks =
+        _tasks.where((t) => t.status == TaskStatus.completed).length;
     final totalTasks = _tasks.length;
     final pendingTasks = totalTasks - completedTasks;
-    final overdueTasks = _tasks.where((t) => t.dueDate != null && t.dueDate!.isBefore(DateTime.now()) && t.status != TaskStatus.completed).length;
-    final todayTasks = _tasks.where((t) => 
-        t.createdAt.day == DateTime.now().day &&
-        t.createdAt.month == DateTime.now().month &&
-        t.createdAt.year == DateTime.now().year).length;
-    final thisWeekTasks = _tasks.where((t) => 
-        t.createdAt.isAfter(DateTime.now().subtract(const Duration(days: 7)))).length;
-    final completionRate = totalTasks > 0 ? (completedTasks / totalTasks * 100) : 0.0;
-    
+    final overdueTasks = _tasks
+        .where((t) =>
+            t.dueDate != null &&
+            t.dueDate!.isBefore(DateTime.now()) &&
+            t.status != TaskStatus.completed)
+        .length;
+    final todayTasks = _tasks
+        .where((t) =>
+            t.createdAt.day == DateTime.now().day &&
+            t.createdAt.month == DateTime.now().month &&
+            t.createdAt.year == DateTime.now().year)
+        .length;
+    final thisWeekTasks = _tasks
+        .where((t) => t.createdAt
+            .isAfter(DateTime.now().subtract(const Duration(days: 7))))
+        .length;
+    final completionRate =
+        totalTasks > 0 ? (completedTasks / totalTasks * 100) : 0.0;
+
     return DashboardStats(
       totalTasks: totalTasks,
       completedTasks: completedTasks,
@@ -315,24 +341,30 @@ class PersistentTaskProvider with ChangeNotifier {
   }
 
   bool get isLoading => false;
-  
+
   Future<void> loadTasks() async {
     if (_isInitialized) {
       _loadTasks();
       notifyListeners();
     }
   }
-  
+
   Future<void> loadDashboardStats() async {
     // Stats are computed on-demand
     notifyListeners();
   }
 
+  @override
   Future<void> dispose() async {
     try {
-      await _taskBox.close();
+      await _taskBox?.close();
     } catch (e) {
-      print('Error closing task box: $e');
+      debugPrint('Error closing task box: $e');
+    }
+    try {
+      await _taskMetadataBox?.close();
+    } catch (e) {
+      debugPrint('Error closing task metadata box: $e');
     }
     super.dispose();
   }

@@ -1,36 +1,57 @@
 # Companion candidate verification
 
-Base: `93177cb1b802209a86d2bf3deed512c36204d1c6`
-Toolchain: official Flutter 3.32.8 / Dart 3.8.1, Linux cloud.
+Toolchain: official Flutter 3.32.8 / Dart 3.8.1. Local checks run on Linux;
+native build and launch checks run in the pull-request macOS workflow.
 
-## Exercised
+The final verification command is `flutter test` from `frontend`. The suite has
+75 tests across nine files. Focused strict analysis covers the companion, its
+entry point, both persistent providers, both editing dialogs, and all tests.
+The release web build uses `lib/main_companion.dart`.
 
-- Countdown wall-time behavior, pause/resume and switching tasks
-- Whole-minute actual-time logging, fractional carry, sleep/deadline cap
-- Latest-request-wins window controller and recoverable resize failure
-- Compact → expanded → planner → compact → expanded → task completion
-- Task editor open/close at the actual 420 × 540 companion size
-- Rendering all three presentations with real bundled text/icon fonts
-- Hive task/project reload, task completion/reopen and saved actual-time values
-- Release web compilation of `lib/main_companion.dart`
+## Feature-to-test matrix
 
-The focused analyzer covers the companion, its entry point and tests. Full legacy
-app analysis has no errors, but its existing broader lint backlog remains (28
-warnings / 125 infos at the review checkpoint). The legacy auth/API entry point
-is not being represented as production-ready.
+| Companion feature | Automated evidence |
+|---|---|
+| Window state and rapid switches | `widget_test.dart`: latest request wins, failed resize; `companion_widget_test.dart`: repeat compact/expanded/planner changes without resetting focus |
+| Task create/edit, form validation, priority, description, tags, estimates | `feature_workflows_test.dart`: real editor saves into Hive, blank/cancel/repeated-submit cases, native-size 420×540 creation; `provider_crud_test.dart`: durable field preservation |
+| Task delete/cancel/error | Both workflow and provider suites verify durable deletion, cancel preserving active focus, and failed writes preserving the task |
+| Status, completion, history and reopening | Provider suite exercises all status/priority values and legacy `done`; workflow suite completes via check button and editor, filters history, reopens without losing fields |
+| Project create/edit/delete/select, colors and reassignment | Provider and workflow suites exercise real CRUD, selected-project behavior, legacy named/hex colors, reassignment and orphan-task preservation |
+| Due date/time and calendar days | Workflow suite drives both native Flutter pickers and day arrows; controller tests cover due-date filtering, actual Today column and exclusion rules |
+| Focus countdown and minute accounting | `widget_test.dart`: wall-clock timing, pause/resume, switch, fractional carry, sleep/deadline cap; `companion_commands_test.dart`: retained failed minutes retry exactly once; workflow regressions preserve freshly flushed actual time on editor save and cancel |
+| Storage/restart and existing installations | `persistence_test.dart` and 23 provider tests: real temp Hive reopen, completion timestamps, closed-box errors, startup failure, no reseeding of empty stores, legacy counter backfill and IDs never reused after deletion/restart |
+| Actual offline GIF | Eight `completion_celebration_test.dart` cases decode all 32 frames, exercise actual `Image.asset` pixels, repeated completions, save failure, duplicate clicks, unmount, compact fit, reduced motion, and click-through interaction |
+| Glass and accessibility | `glass_surface_test.dart`: blur/opaque rendering, saved preference, toggle persistence and high-contrast override; GIF suite verifies reduced-motion behavior |
+| Keyboard and local commands | Workflow suite exercises ⌘P, Escape, ⌘K, start/finish, invalid/missing/closed IDs and failed completion; parser unit rejects arbitrary URLs/shell-like input |
+| Render/layout | `companion_capture_test.dart` renders compact/expanded/planner with real bundled fonts; workflow tests cover 420×540, 760×600 and narrow planner layouts |
 
-## Evidence interpretation
+## Native evidence gate
 
-PNG UI captures come directly from Flutter's running widget test renderer with
-sample tasks. They are actual widget output, not a design mockup, but they do not
-prove native macOS behavior. Browser preview was blocked by the cloud browser's
-localhost policy; that restriction was not bypassed.
+The exact published commit must pass the macOS workflow's analyzer, full test
+suite, native release build and packaging. The new launch smoke starts that
+compiled app, waits for its first Flutter frame, confirms a visible NSWindow,
+and requires the process to remain alive. It uses no screen-recording or
+Accessibility permission. The job records `macos-runtime-smoke.log` alongside
+the app zip and checksum.
 
-Native macOS compilation/package status must be read from the pull-request CI
-run for the exact published commit. Linux cannot perform that build. No signing,
-notarization, deployment, merge or user-computer access was performed.
+A Linux UI capture is real Flutter widget output, not a design mockup, but it
+cannot establish native desktop behavior. Manual Mac acceptance still needs
+real wallpaper vibrancy, OS Reduce Transparency, dragging, top-edge safe area,
+focus handoff, Spaces/full-screen behavior, keyboard behavior and OS sleep.
+Native compile/launch does not replace those checks.
 
-Still to verify on macOS: top-edge placement and safe area, window dragging,
-focus handoff, Spaces/full-screen behavior, repeated rapid resize/escape,
-keyboard shortcuts and OS sleep/resume. Timer countdown is session-local and
-resets after quitting; completed whole-minute actual time is saved to Hive.
+## Honest scope and persistence limits
+
+The companion is local-first. Legacy authentication, backend sync, analytics,
+import/export and separate legacy focus/break screens are not represented as
+verified companion features. Their original source entry point remains.
+
+Countdown/session state resets on quit; saved completed whole-minute actual
+time and task/project data survive restart. Partial minutes carry between
+sessions only while the app stays open. If a focus-time write fails, the retry
+queue stays in memory: use **Retry saving focus time** before quitting.
+The timer does not automatically complete a task or schedule an OS notification.
+
+The downloadable app is an unsigned, unnotarized development candidate.
+No user Mac, signing credentials, security settings, deployment or merge were
+used for this verification. See `MACOS_CANDIDATE.md` and `LOCAL_TASK_COMMANDS.md`.

@@ -9,9 +9,12 @@ import '../widgets/project_dialog.dart';
 import 'companion_window.dart';
 import 'focus_session.dart';
 import 'completion_celebration.dart';
+import 'glass_surface.dart';
+import 'local_task_commands.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-const _ink = Color(0xFF14161B);
-const _accent = Color(0xFFB8F280);
+const _ink = Color(0xFF172438);
+const _accent = Color(0xFF90E8DC);
 
 class CompanionApp extends StatelessWidget {
   const CompanionApp({super.key});
@@ -40,6 +43,54 @@ class CompanionShell extends StatefulWidget {
 class _CompanionShellState extends State<CompanionShell> {
   int _celebration = 0;
   bool _celebrating = false;
+  bool _opaque = false;
+  bool _systemOpaque = false;
+  static const _native = MethodChannel('blitzit/desktop');
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAppearance();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        await _native.invokeMethod<void>('reportReady');
+      } catch (_) {}
+    });
+    _native.setMethodCallHandler((call) async {
+      if (call.method == 'accessibilityChanged' && mounted) {
+        setState(() => _systemOpaque = call.arguments == true);
+      }
+    });
+  }
+
+  Future<void> _loadAppearance() async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      if (mounted) {
+        setState(
+            () => _opaque = preferences.getBool('companion.opaque') ?? false);
+      }
+      final system =
+          await _native.invokeMethod<bool>('reduceTransparency') ?? false;
+      if (mounted) setState(() => _systemOpaque = system);
+      await _native.invokeMethod<void>('setOpaque', _opaque);
+    } catch (_) {/* Web/tests have no native appearance channel. */}
+  }
+
+  Future<void> toggleGlass() async {
+    setState(() => _opaque = !_opaque);
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.setBool('companion.opaque', _opaque);
+      await _native.invokeMethod<void>('setOpaque', _opaque);
+    } catch (_) {/* The in-app contrast choice remains available. */}
+  }
+
+  @override
+  void dispose() {
+    _native.setMethodCallHandler(null);
+    super.dispose();
+  }
 
   void celebrate() {
     if (!mounted) return;
@@ -55,6 +106,8 @@ class _CompanionShellState extends State<CompanionShell> {
     final planner = window.mode == CompanionMode.planner;
     return CallbackShortcuts(
       bindings: {
+        const SingleActivator(LogicalKeyboardKey.keyK, meta: true): () =>
+            _showLocalCommand(context, this),
         const SingleActivator(LogicalKeyboardKey.escape): () =>
             window.show(CompanionMode.compact),
         const SingleActivator(LogicalKeyboardKey.keyP, meta: true): () =>
@@ -68,41 +121,60 @@ class _CompanionShellState extends State<CompanionShell> {
             alignment: Alignment.topCenter,
             child: ClipRRect(
               borderRadius: BorderRadius.circular(planner ? 0 : 24),
-              child: Container(
+              child: SizedBox(
                 width: planner ? double.infinity : 420,
                 height: planner
                     ? double.infinity
                     : window.mode == CompanionMode.compact
                         ? 84
                         : 540,
-                decoration: BoxDecoration(
-                  color: _ink,
-                  border: Border.all(color: Colors.white12),
-                ),
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    TweenAnimationBuilder<double>(
-                      key: ValueKey(window.mode),
-                      tween: Tween(
-                        begin: MediaQuery.of(context).disableAnimations ? 1 : 0,
-                        end: 1,
+                child: GlassSurface(
+                  opaque: _opaque ||
+                      _systemOpaque ||
+                      MediaQuery.highContrastOf(context),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      TweenAnimationBuilder<double>(
+                        key: ValueKey(window.mode),
+                        tween: Tween(
+                          begin:
+                              MediaQuery.of(context).disableAnimations ? 1 : 0,
+                          end: 1,
+                        ),
+                        duration: const Duration(milliseconds: 180),
+                        builder: (_, opacity, child) =>
+                            Opacity(opacity: opacity, child: child),
+                        child: planner
+                            ? const PlannerView()
+                            : const CompanionPanel(),
                       ),
-                      duration: const Duration(milliseconds: 180),
-                      builder: (_, opacity, child) =>
-                          Opacity(opacity: opacity, child: child),
-                      child: planner
-                          ? const PlannerView()
-                          : const CompanionPanel(),
-                    ),
-                    if (_celebrating)
-                      CompletionCelebration(
-                        key: ValueKey(_celebration),
-                        onComplete: () {
-                          if (mounted) setState(() => _celebrating = false);
-                        },
-                      ),
-                  ],
+                      if (context
+                                  .watch<PersistentTaskProvider>()
+                                  .initializationError !=
+                              null ||
+                          context
+                                  .watch<PersistentProjectProvider>()
+                                  .initializationError !=
+                              null)
+                        const Positioned(
+                            left: 12,
+                            right: 12,
+                            bottom: 4,
+                            child: Text(
+                                'Local storage unavailable. Changes cannot be saved.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                    color: Color(0xFFFFD59C), fontSize: 11))),
+                      if (_celebrating)
+                        CompletionCelebration(
+                          key: ValueKey(_celebration),
+                          onComplete: () {
+                            if (mounted) setState(() => _celebrating = false);
+                          },
+                        ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -151,7 +223,7 @@ class CompanionPanel extends StatelessWidget {
                                   : CompanionMode.expanded,
                             ),
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 18),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -177,7 +249,7 @@ class CompanionPanel extends StatelessWidget {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
-                              color: Colors.white54,
+                              color: Colors.white70,
                               fontSize: 10,
                             ),
                           ),
@@ -243,7 +315,7 @@ class CompanionPanel extends StatelessWidget {
                       const SizedBox(width: 10),
                       Text(
                         '${today.length}',
-                        style: const TextStyle(color: Colors.white38),
+                        style: const TextStyle(color: Colors.white60),
                       ),
                       const Spacer(),
                       IconButton(
@@ -263,7 +335,7 @@ class CompanionPanel extends StatelessWidget {
                               'A clear day.\nAdd a task with today’s due date to begin.',
                               textAlign: TextAlign.center,
                               style: TextStyle(
-                                color: Colors.white54,
+                                color: Colors.white70,
                                 height: 1.8,
                               ),
                             ),
@@ -311,17 +383,25 @@ class _TaskRowState extends State<_TaskRow> {
   Widget build(BuildContext context) {
     final session = context.watch<FocusSession>();
     final selected = session.taskId == task.id;
+    final completed = isCompletedTask(task);
     return Card(
       color: selected
-          ? const Color(0xFF293326)
-          : Colors.white.withValues(alpha: .035),
+          ? const Color(0xB52A5862)
+          : Colors.white.withValues(alpha: .065),
       elevation: 0,
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(
+              color: Colors.white.withValues(alpha: selected ? .2 : .07))),
       margin: const EdgeInsets.only(bottom: 8),
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 10),
         leading: IconButton(
-          tooltip: 'Complete ${task.title}',
-          icon: const Icon(Icons.radio_button_unchecked, size: 20),
+          tooltip: '${completed ? 'Reopen' : 'Complete'} ${task.title}',
+          icon: Icon(
+              completed ? Icons.check_circle : Icons.radio_button_unchecked,
+              size: 20,
+              color: completed ? _accent : null),
           onPressed: _saving
               ? null
               : () async {
@@ -340,7 +420,7 @@ class _TaskRowState extends State<_TaskRow> {
                     await tasks.toggleTaskCompletion(id);
                     if (shell?.mounted != true) return;
                     if (session.taskId == id) session.clear();
-                    shell!.celebrate();
+                    if (!completed) shell!.celebrate();
                   } catch (_) {
                     if (messenger.mounted) {
                       messenger.showSnackBar(const SnackBar(
@@ -360,21 +440,42 @@ class _TaskRowState extends State<_TaskRow> {
           style: const TextStyle(fontSize: 13),
         ),
         subtitle: Text(
-          '${task.estimatedTime > 0 ? task.estimatedTime : 25} min · ${task.priority.displayName}',
-          style: const TextStyle(fontSize: 11, color: Colors.white38),
+          '${task.estimatedTime > 0 ? task.estimatedTime : 25} min · ${task.priority.displayName} · #${task.id}',
+          style: const TextStyle(fontSize: 11, color: Colors.white60),
         ),
-        trailing: IconButton(
-          tooltip: 'Focus on ${task.title}',
-          icon: Icon(
-            selected && session.isRunning
-                ? Icons.pause_rounded
-                : Icons.play_arrow_rounded,
-            color: selected ? _accent : Colors.white54,
-          ),
-          onPressed: () {
-            session.select(task);
-            session.toggle();
-          },
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (isOpenTask(task))
+              IconButton(
+                tooltip: 'Focus on ${task.title}',
+                icon: Icon(
+                  selected && session.isRunning
+                      ? Icons.pause_rounded
+                      : Icons.play_arrow_rounded,
+                  color: selected ? _accent : Colors.white70,
+                ),
+                onPressed: () {
+                  session.select(task);
+                  session.toggle();
+                },
+              ),
+            PopupMenuButton<String>(
+              tooltip: 'Task actions',
+              iconSize: 18,
+              onSelected: (action) async {
+                if (action == 'edit') {
+                  await _editTask(context, task);
+                } else if (action == 'delete' && context.mounted) {
+                  await _deleteTask(context, task);
+                }
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem(value: 'edit', child: Text('Edit task')),
+                PopupMenuItem(value: 'delete', child: Text('Delete task')),
+              ],
+            ),
+          ],
         ),
         onTap: () => _editTask(context, task),
       ),
@@ -391,26 +492,33 @@ class PlannerView extends StatefulWidget {
 class _PlannerViewState extends State<PlannerView> {
   int? projectId;
   bool allTasks = false;
+  bool completed = false;
   DateTime day = DateUtils.dateOnly(DateTime.now());
   @override
   Widget build(BuildContext context) {
     final tasks = context.watch<PersistentTaskProvider>().tasks;
     final projects = context.watch<PersistentProjectProvider>().projects;
-    final list = (projectId != null
-        ? tasks.where((t) => t.projectId == projectId && isOpenTask(t)).toList()
-        : allTasks
-            ? tasks.where(isOpenTask).toList()
-            : tasksForDay(tasks, day));
+    final list = (completed
+        ? tasks.where(isCompletedTask).toList()
+        : projectId != null
+            ? tasks
+                .where((t) => t.projectId == projectId && !isCompletedTask(t))
+                .toList()
+            : allTasks
+                ? tasks.where((t) => !isCompletedTask(t)).toList()
+                : tasksForDay(tasks, day));
     final window = context.watch<CompanionWindow>();
     return LayoutBuilder(
       builder: (context, constraints) => Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (constraints.maxWidth > 700)
             Container(
               width: 230,
               color: Colors.black26,
               padding: const EdgeInsets.all(18),
-              child: Column(
+              child: SingleChildScrollView(
+                  child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Padding(
@@ -429,57 +537,118 @@ class _PlannerViewState extends State<PlannerView> {
                   ListTile(
                     leading: const Icon(Icons.wb_sunny_outlined),
                     title: const Text('Today'),
-                    selected: projectId == null && !allTasks,
+                    selected: projectId == null && !allTasks && !completed,
                     onTap: () => setState(() {
                       projectId = null;
                       allTasks = false;
+                      completed = false;
                       day = DateUtils.dateOnly(DateTime.now());
                     }),
                   ),
                   ListTile(
                     leading: const Icon(Icons.inbox_outlined),
                     title: const Text('All tasks'),
-                    selected: allTasks,
+                    selected: allTasks && !completed,
                     onTap: () => setState(() {
                       projectId = null;
                       allTasks = true;
+                      completed = false;
+                    }),
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.task_alt),
+                    title: const Text('Completed'),
+                    selected: completed,
+                    onTap: () => setState(() {
+                      completed = true;
+                      allTasks = false;
+                      projectId = null;
                     }),
                   ),
                   const SizedBox(height: 32),
                   const Text(
                     'PROJECTS',
                     style: TextStyle(
-                      color: Colors.white38,
+                      color: Colors.white60,
                       letterSpacing: 2,
                       fontSize: 11,
                     ),
                   ),
                   const SizedBox(height: 12),
-                  Expanded(
-                    child: ListView(
-                      children: projects
-                          .map(
-                            (project) => ListTile(
-                              selected: projectId == project.id,
-                              title: Text(project.name),
-                              leading: const Icon(
-                                Icons.circle,
-                                size: 9,
-                                color: _accent,
-                              ),
-                              onTap: () {
-                                context
-                                    .read<PersistentProjectProvider>()
-                                    .selectProject(project.id);
-                                setState(() {
-                                  projectId = project.id;
-                                  allTasks = false;
-                                });
+                  ListView(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    children: projects
+                        .map(
+                          (project) => ListTile(
+                            selected: projectId == project.id,
+                            contentPadding: EdgeInsets.zero,
+                            minLeadingWidth: 12,
+                            horizontalTitleGap: 10,
+                            title: Text(project.name,
+                                maxLines: 1, overflow: TextOverflow.ellipsis),
+                            trailing: PopupMenuButton<String>(
+                              tooltip: 'Project actions for ${project.name}',
+                              iconSize: 18,
+                              onSelected: (action) async {
+                                if (action == 'edit') {
+                                  await showDialog(
+                                      context: context,
+                                      builder: (_) =>
+                                          ProjectDialog(project: project));
+                                } else {
+                                  await _deleteProject(context, project);
+                                  if (context.mounted &&
+                                      !context
+                                          .read<PersistentProjectProvider>()
+                                          .projects
+                                          .any((p) => p.id == project.id)) {
+                                    setState(() {
+                                      projectId = null;
+                                      allTasks = true;
+                                      completed = false;
+                                    });
+                                  }
+                                }
                               },
+                              itemBuilder: (_) => const [
+                                PopupMenuItem(
+                                    value: 'edit', child: Text('Edit project')),
+                                PopupMenuItem(
+                                    value: 'delete',
+                                    child: Text('Delete project')),
+                              ],
                             ),
-                          )
-                          .toList(),
-                    ),
+                            leading: Icon(
+                              Icons.circle,
+                              size: 9,
+                              color: _projectColor(project.color),
+                            ),
+                            onTap: () {
+                              context
+                                  .read<PersistentProjectProvider>()
+                                  .selectProject(project.id);
+                              setState(() {
+                                projectId = project.id;
+                                allTasks = false;
+                                completed = false;
+                              });
+                            },
+                          ),
+                        )
+                        .toList(),
+                  ),
+                  TextButton.icon(
+                    onPressed: () => _showLocalCommand(context),
+                    icon: const Icon(Icons.terminal),
+                    label: const Text('Local commands'),
+                  ),
+                  TextButton.icon(
+                    onPressed: () => context
+                        .findAncestorStateOfType<_CompanionShellState>()
+                        ?.toggleGlass(),
+                    icon: const Icon(Icons.blur_on),
+                    label: const Text('Glass / solid appearance'),
                   ),
                   TextButton.icon(
                     onPressed: () => showDialog(
@@ -492,13 +661,13 @@ class _PlannerViewState extends State<PlannerView> {
                   const Text(
                     'LOCAL WORKSPACE\nSaved on this device',
                     style: TextStyle(
-                      color: Colors.white38,
+                      color: Colors.white60,
                       fontSize: 10,
                       height: 1.8,
                     ),
                   ),
                 ],
-              ),
+              )),
             ),
           Expanded(
             child: Padding(
@@ -509,9 +678,11 @@ class _PlannerViewState extends State<PlannerView> {
                   if (constraints.maxWidth <= 700)
                     DropdownButton<int>(
                       isExpanded: true,
-                      value: projectId ?? (allTasks ? -2 : -1),
+                      value: completed ? -4 : projectId ?? (allTasks ? -2 : -1),
                       items: [
                         const DropdownMenuItem(value: -1, child: Text('Today')),
+                        const DropdownMenuItem(
+                            value: -4, child: Text('Completed')),
                         const DropdownMenuItem(
                           value: -2,
                           child: Text('All tasks'),
@@ -539,6 +710,7 @@ class _PlannerViewState extends State<PlannerView> {
                           projectId =
                               value != null && value >= 0 ? value : null;
                           allTasks = value == -2;
+                          completed = value == -4;
                           if (value == -1) {
                             day = DateUtils.dateOnly(DateTime.now());
                           }
@@ -550,7 +722,7 @@ class _PlannerViewState extends State<PlannerView> {
                       const Expanded(
                         child: Text(
                           'Make room for what matters.',
-                          style: TextStyle(color: Colors.white38, fontSize: 12),
+                          style: TextStyle(color: Colors.white60, fontSize: 12),
                         ),
                       ),
                       IconButton(
@@ -567,15 +739,17 @@ class _PlannerViewState extends State<PlannerView> {
                     children: [
                       Expanded(
                         child: Text(
-                          projectId != null
-                              ? projects
-                                      .where((p) => p.id == projectId)
-                                      .firstOrNull
-                                      ?.name ??
-                                  'Project'
-                              : allTasks
-                                  ? 'All tasks'
-                                  : 'Your day, in focus.',
+                          completed
+                              ? 'Completed'
+                              : projectId != null
+                                  ? projects
+                                          .where((p) => p.id == projectId)
+                                          .firstOrNull
+                                          ?.name ??
+                                      'Project'
+                                  : allTasks
+                                      ? 'All tasks'
+                                      : 'Your day, in focus.',
                           style: const TextStyle(
                             fontSize: 32,
                             fontWeight: FontWeight.w600,
@@ -591,7 +765,7 @@ class _PlannerViewState extends State<PlannerView> {
                     ],
                   ),
                   const SizedBox(height: 20),
-                  if (projectId == null && !allTasks)
+                  if (projectId == null && !allTasks && !completed)
                     Row(
                       children: [
                         IconButton(
@@ -622,16 +796,20 @@ class _PlannerViewState extends State<PlannerView> {
                       ],
                     ),
                   Text(
-                    '${list.length} tasks remaining',
-                    style: const TextStyle(color: Colors.white38),
+                    completed
+                        ? '${list.length} tasks completed'
+                        : '${list.length} tasks remaining',
+                    style: const TextStyle(color: Colors.white60),
                   ),
                   const SizedBox(height: 20),
                   Expanded(
                     child: list.isEmpty
-                        ? const Center(
+                        ? Center(
                             child: Text(
-                              'Nothing scheduled. Leave a little breathing room.',
-                              style: TextStyle(color: Colors.white38),
+                              completed
+                                  ? 'Completed tasks will appear here.'
+                                  : 'Nothing scheduled. Leave a little breathing room.',
+                              style: const TextStyle(color: Colors.white60),
                             ),
                           )
                         : ListView(
@@ -639,6 +817,12 @@ class _PlannerViewState extends State<PlannerView> {
                                 list.map((t) => _TaskRow(task: t)).toList(),
                           ),
                   ),
+                  if (context.watch<FocusSession>().loggingError != null)
+                    TextButton.icon(
+                        onPressed: () =>
+                            context.read<FocusSession>().retryLogging(),
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('Retry saving focus time')),
                   const Divider(color: Colors.white12),
                   const SizedBox(height: 4),
                   Row(
@@ -657,7 +841,7 @@ class _PlannerViewState extends State<PlannerView> {
                       const Expanded(
                         child: Text(
                           'Your focus stays with you when you switch views',
-                          style: TextStyle(color: Colors.white38, fontSize: 11),
+                          style: TextStyle(color: Colors.white60, fontSize: 11),
                         ),
                       ),
                     ],
@@ -681,10 +865,18 @@ Future<void> _editTask(
   final provider = context.read<PersistentTaskProvider>();
   final projects = context.read<PersistentProjectProvider>();
   final session = context.read<FocusSession>();
-  if (session.taskId == task?.id && session.isRunning) session.toggle();
+  final editingId = task?.id;
+  if (session.taskId == editingId && session.isRunning) session.toggle();
   await session.flush();
   if (!context.mounted) return;
-  await showDialog<void>(
+  // Flushing focus may replace the stored task with newly logged actual time.
+  // Open the editor from that current record rather than the row's snapshot.
+  if (editingId != null) {
+    task = provider.tasks.where((value) => value.id == editingId).firstOrNull;
+    if (task == null) return;
+  }
+  final shell = context.findAncestorStateOfType<_CompanionShellState>();
+  final newlyCompleted = await showDialog<bool>(
     context: context,
     builder: (_) => TaskDialog(
       task: task,
@@ -695,8 +887,129 @@ Future<void> _editTask(
       initialDueDate: day ?? DateTime.now(),
     ),
   );
+  if (newlyCompleted == true) shell?.celebrate();
+  if (shell?.mounted != true) return;
   if (session.taskId != null &&
       !provider.tasks.any((t) => t.id == session.taskId && isOpenTask(t))) {
     session.clear();
   }
+}
+
+Future<void> _deleteTask(BuildContext context, Task task) async {
+  final tasks = context.read<PersistentTaskProvider>();
+  final session = context.read<FocusSession>();
+  final messenger = ScaffoldMessenger.of(context);
+  final approved = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+            title: const Text('Delete task?'),
+            content: Text('Delete “${task.title}”? This cannot be undone.'),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('Cancel')),
+              FilledButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('Delete task'))
+            ],
+          ));
+  if (approved != true) return;
+  try {
+    if (session.taskId == task.id && session.isRunning) session.toggle();
+    await session.flush();
+    await tasks.deleteTask(task.id);
+    if (session.taskId == task.id) session.clear();
+  } catch (_) {
+    if (messenger.mounted) {
+      messenger.showSnackBar(const SnackBar(
+          content: Text('Task could not be deleted. Please try again.')));
+    }
+  }
+}
+
+Future<void> _deleteProject(BuildContext context, Project project) async {
+  final projects = context.read<PersistentProjectProvider>();
+  final messenger = ScaffoldMessenger.of(context);
+  final approved = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+            title: const Text('Delete project?'),
+            content: Text(
+                'Delete “${project.name}”? Its tasks will stay in All tasks and can be moved to another project.'),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('Cancel')),
+              FilledButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('Delete project'))
+            ],
+          ));
+  if (approved != true) return;
+  try {
+    await projects.deleteProject(project.id);
+  } catch (_) {
+    if (messenger.mounted) {
+      messenger.showSnackBar(const SnackBar(
+          content: Text('Project could not be deleted. Please try again.')));
+    }
+  }
+}
+
+Future<void> _showLocalCommand(BuildContext context,
+    [_CompanionShellState? owner]) async {
+  final window = context.read<CompanionWindow>();
+  if (window.mode == CompanionMode.compact) {
+    await window.show(CompanionMode.expanded);
+    if (!context.mounted) return;
+  }
+  final tasks = context.read<PersistentTaskProvider>();
+  final session = context.read<FocusSession>();
+  final shell =
+      owner ?? context.findAncestorStateOfType<_CompanionShellState>();
+  await showDialog<void>(
+      context: context,
+      builder: (_) => LocalTaskCommandDialog(run: (command) async {
+            final task = tasks.tasks
+                .where((task) => task.id == command.taskId)
+                .firstOrNull;
+            if (task == null) {
+              throw const FormatException('No task has that ID');
+            }
+            if (!isOpenTask(task)) {
+              throw const FormatException('Choose an open task');
+            }
+            if (command.action == LocalTaskAction.start) {
+              session.select(task);
+              if (!session.isRunning) session.toggle();
+            } else {
+              if (session.taskId == task.id && session.isRunning) {
+                session.toggle();
+              }
+              await session.flush();
+              await tasks.toggleTaskCompletion(task.id);
+              if (shell?.mounted != true) return;
+              if (session.taskId == task.id) session.clear();
+              shell?.celebrate();
+            }
+          }));
+}
+
+Color _projectColor(String value) {
+  const named = {
+    'green': Color(0xFF81C784),
+    'blue': Color(0xFF64B5F6),
+    'red': Color(0xFFE57373),
+    'purple': Color(0xFFBA68C8),
+    'orange': Color(0xFFFFB74D),
+    'yellow': Color(0xFFFFD54F),
+    'pink': Color(0xFFF06292),
+    'teal': Color(0xFF4DB6AC)
+  };
+  if (named.containsKey(value.toLowerCase())) {
+    return named[value.toLowerCase()]!;
+  }
+  final hex = value.replaceFirst('#', '');
+  final parsed = int.tryParse(hex.length == 6 ? 'FF$hex' : hex, radix: 16);
+  return parsed == null ? _accent : Color(parsed);
 }

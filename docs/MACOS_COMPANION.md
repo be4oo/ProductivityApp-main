@@ -23,7 +23,10 @@ flutter run -d chrome --target lib/main_companion.dart
 
 - Compact: current task, countdown, pause/resume, expand
 - Expanded: Today tasks, focus, completion, add task, open planner
-- Planner: all tasks, project selection/creation, previous/next day, task editing
+- Planner: all tasks, completed history/reopen, project CRUD/filtering, previous/next day, task CRUD/reassignment
+- Original offline dancing-mascot GIF after successful completion; static reduced-motion confirmation
+- Native macOS vibrancy plus a saved solid-appearance option and system Reduce Transparency
+- Local commands (Command-K): start/finish an existing task ID; no agent connection or listener
 - Return to compact with the top-right button or Escape; Command-P opens planner
 - Drag the lightning icon to move the native window
 - Compact/expanded modes are always-on-top; planner is a normal resizable window
@@ -45,8 +48,9 @@ merge, publish a release, or use signing credentials. This is an unsigned /
 not-notarized development candidate. Gatekeeper may require the owner to approve
 opening it. Do not disable system security to run an untrusted download.
 
-A passing build confirms compilation, not actual macOS window interaction.
-Native smoke testing remains necessary: top-edge placement, drag, resizing,
+The workflow now also checks native process launch, first Flutter frame and a
+visible window. That still does not prove every macOS interaction. Manual
+acceptance remains necessary: top-edge placement, drag, resizing,
 Spaces/full-screen interactions, sleep/resume, repeated expand/collapse, and
 keyboard focus. Browser screenshots cannot establish those behaviors.
 
@@ -61,3 +65,5 @@ logic is copied. This implementation is Flutter over the existing Blitzit data.
 The legacy authentication UI is demo authentication, not account security.
 The legacy backend has separate baseline issues; this candidate does not rely
 on it. No production deployment or cloud synchronization is included.
+
+See [verification matrix](VERIFICATION.md) for exact feature coverage and limits.
