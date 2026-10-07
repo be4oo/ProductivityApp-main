@@ -245,7 +245,12 @@ class PersistentTaskProvider with ChangeNotifier {
       updatedAt: DateTime.now(),
     );
     
-    await updateTask(updatedTask);
+    // Completion must be durable before the UI acknowledges success.
+    if (!_isInitialized) throw StateError('Task storage is unavailable');
+    await _taskBox.put(taskId, updatedTask);
+    final index = _tasks.indexWhere((task) => task.id == taskId);
+    if (index >= 0) _tasks[index] = updatedTask;
+    notifyListeners();
   }
 
   List<Task> getTasksByColumn(String column) {

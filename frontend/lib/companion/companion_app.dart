@@ -8,6 +8,7 @@ import '../widgets/task_dialog.dart';
 import '../widgets/project_dialog.dart';
 import 'companion_window.dart';
 import 'focus_session.dart';
+import 'completion_celebration.dart';
 
 const _ink = Color(0xFF14161B);
 const _accent = Color(0xFFB8F280);
@@ -30,8 +31,24 @@ class CompanionApp extends StatelessWidget {
       );
 }
 
-class CompanionShell extends StatelessWidget {
+class CompanionShell extends StatefulWidget {
   const CompanionShell({super.key});
+  @override
+  State<CompanionShell> createState() => _CompanionShellState();
+}
+
+class _CompanionShellState extends State<CompanionShell> {
+  int _celebration = 0;
+  bool _celebrating = false;
+
+  void celebrate() {
+    if (!mounted) return;
+    setState(() {
+      _celebration++;
+      _celebrating = true;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final window = context.watch<CompanionWindow>();
@@ -62,16 +79,30 @@ class CompanionShell extends StatelessWidget {
                   color: _ink,
                   border: Border.all(color: Colors.white12),
                 ),
-                child: TweenAnimationBuilder<double>(
-                  key: ValueKey(window.mode),
-                  tween: Tween(
-                    begin: MediaQuery.of(context).disableAnimations ? 1 : 0,
-                    end: 1,
-                  ),
-                  duration: const Duration(milliseconds: 180),
-                  builder: (_, opacity, child) =>
-                      Opacity(opacity: opacity, child: child),
-                  child: planner ? const PlannerView() : const CompanionPanel(),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    TweenAnimationBuilder<double>(
+                      key: ValueKey(window.mode),
+                      tween: Tween(
+                        begin: MediaQuery.of(context).disableAnimations ? 1 : 0,
+                        end: 1,
+                      ),
+                      duration: const Duration(milliseconds: 180),
+                      builder: (_, opacity, child) =>
+                          Opacity(opacity: opacity, child: child),
+                      child: planner
+                          ? const PlannerView()
+                          : const CompanionPanel(),
+                    ),
+                    if (_celebrating)
+                      CompletionCelebration(
+                        key: ValueKey(_celebration),
+                        onComplete: () {
+                          if (mounted) setState(() => _celebrating = false);
+                        },
+                      ),
+                  ],
                 ),
               ),
             ),
@@ -266,9 +297,16 @@ class CompanionPanel extends StatelessWidget {
   }
 }
 
-class _TaskRow extends StatelessWidget {
+class _TaskRow extends StatefulWidget {
   const _TaskRow({required this.task});
   final Task task;
+  @override
+  State<_TaskRow> createState() => _TaskRowState();
+}
+
+class _TaskRowState extends State<_TaskRow> {
+  bool _saving = false;
+  Task get task => widget.task;
   @override
   Widget build(BuildContext context) {
     final session = context.watch<FocusSession>();
@@ -284,17 +322,36 @@ class _TaskRow extends StatelessWidget {
         leading: IconButton(
           tooltip: 'Complete ${task.title}',
           icon: const Icon(Icons.radio_button_unchecked, size: 20),
-          onPressed: () async {
-            if (session.taskId == task.id && session.isRunning) {
-              session.toggle();
-            }
-            await session.flush();
-            if (!context.mounted) return;
-            await context.read<PersistentTaskProvider>().toggleTaskCompletion(
-                  task.id,
-                );
-            if (session.taskId == task.id) session.clear();
-          },
+          onPressed: _saving
+              ? null
+              : () async {
+                  final id = task.id;
+                  final tasks = context.read<PersistentTaskProvider>();
+                  final shell =
+                      context.findAncestorStateOfType<_CompanionShellState>();
+                  final messenger = ScaffoldMessenger.of(context);
+                  setState(() => _saving = true);
+                  try {
+                    if (session.taskId == id && session.isRunning) {
+                      session.toggle();
+                    }
+                    await session.flush();
+                    if (!mounted) return;
+                    await tasks.toggleTaskCompletion(id);
+                    if (shell?.mounted != true) return;
+                    if (session.taskId == id) session.clear();
+                    shell!.celebrate();
+                  } catch (_) {
+                    if (messenger.mounted) {
+                      messenger.showSnackBar(const SnackBar(
+                        content:
+                            Text('Task could not be saved. Please try again.'),
+                      ));
+                    }
+                  } finally {
+                    if (mounted) setState(() => _saving = false);
+                  }
+                },
         ),
         title: Text(
           task.title,

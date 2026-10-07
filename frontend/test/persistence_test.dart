@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:blitzit_flutter/models/models.dart';
 import 'package:blitzit_flutter/providers/persistent_task_provider.dart';
@@ -6,6 +7,22 @@ import 'package:blitzit_flutter/providers/persistent_project_provider.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test('A failed completion write preserves the open task and reports failure',
+      () async {
+    final directory =
+        await Directory.systemTemp.createTemp('blitzit-save-failure-');
+    final tasks = PersistentTaskProvider();
+    await tasks.initialize(storagePath: directory.path);
+    final original =
+        tasks.tasks.firstWhere((task) => task.status != TaskStatus.completed);
+    await Hive.box<Task>('tasks').close();
+    await expectLater(
+        tasks.toggleTaskCompletion(original.id), throwsA(isA<HiveError>()));
+    expect(tasks.tasks.singleWhere((task) => task.id == original.id).status,
+        original.status);
+    await tasks.dispose();
+    await directory.delete(recursive: true);
+  });
   test('Tasks, completed status, actual minutes and projects survive reopening',
       () async {
     final directory = await Directory.systemTemp.createTemp('blitzit-test-');
