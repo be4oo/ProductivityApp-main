@@ -11,11 +11,15 @@ class PersistentTaskProvider with ChangeNotifier {
   List<Task> get tasks => _tasks;
   bool get isInitialized => _isInitialized;
 
-  Future<void> initialize() async {
+  Future<void> initialize({String? storagePath}) async {
     if (_isInitialized) return;
     
     try {
-      await Hive.initFlutter();
+      if (storagePath == null) {
+        await Hive.initFlutter();
+      } else {
+        Hive.init(storagePath);
+      }
       
       // Register adapters
       if (!Hive.isAdapterRegistered(0)) {
@@ -39,6 +43,7 @@ class PersistentTaskProvider with ChangeNotifier {
       
       _taskBox = await Hive.openBox<Task>('tasks');
       _loadTasks();
+      _isInitialized = true;
       
       // Add sample tasks if the box is empty
       if (_tasks.isEmpty) {
@@ -235,6 +240,7 @@ class PersistentTaskProvider with ChangeNotifier {
     final updatedTask = task.copyWith(
       status: isCompleted ? TaskStatus.todo : TaskStatus.completed,
       completedAt: isCompleted ? null : DateTime.now(),
+      clearCompletedAt: isCompleted,
       column: isCompleted ? 'To Do' : 'Done',
       updatedAt: DateTime.now(),
     );
@@ -259,6 +265,7 @@ class PersistentTaskProvider with ChangeNotifier {
       column: newColumn,
       status: status,
       completedAt: newColumn == 'Done' ? DateTime.now() : null,
+      clearCompletedAt: newColumn != 'Done',
       updatedAt: DateTime.now(),
     );
     

@@ -13,11 +13,15 @@ class PersistentProjectProvider with ChangeNotifier {
   int? get selectedProjectId => _selectedProjectId;
   bool get isInitialized => _isInitialized;
 
-  Future<void> initialize() async {
+  Future<void> initialize({String? storagePath}) async {
     if (_isInitialized) return;
     
     try {
-      await Hive.initFlutter();
+      if (storagePath == null) {
+        await Hive.initFlutter();
+      } else {
+        Hive.init(storagePath);
+      }
       
       // Register adapters if not already registered
       if (!Hive.isAdapterRegistered(0)) {
@@ -41,6 +45,7 @@ class PersistentProjectProvider with ChangeNotifier {
       
       _projectBox = await Hive.openBox<Project>('projects');
       _loadProjects();
+      _isInitialized = true;
       
       // Add sample projects if the box is empty
       if (_projects.isEmpty) {

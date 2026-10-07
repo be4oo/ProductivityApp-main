@@ -6,11 +6,13 @@ import '../providers/persistent_task_provider.dart';
 class TaskDialog extends StatefulWidget {
   final Task? task;
   final int projectId;
+  final DateTime? initialDueDate;
 
   const TaskDialog({
     Key? key,
     this.task,
     required this.projectId,
+    this.initialDueDate,
   }) : super(key: key);
 
   @override
@@ -31,16 +33,21 @@ class _TaskDialogState extends State<TaskDialog> {
   @override
   void initState() {
     super.initState();
+    _dueDate = widget.initialDueDate;
     _titleController = TextEditingController(text: widget.task?.title ?? '');
-    _descriptionController = TextEditingController(text: widget.task?.description ?? '');
-    _tagsController = TextEditingController(text: widget.task?.tags?.join(', ') ?? '');
-    
+    _descriptionController = TextEditingController(
+      text: widget.task?.description ?? '',
+    );
+    _tagsController = TextEditingController(
+      text: widget.task?.tags?.join(', ') ?? '',
+    );
+
     if (widget.task != null) {
       _priority = widget.task!.priority;
       _status = widget.task!.status;
       _dueDate = widget.task!.dueDate;
       _estimatedPomodoros = widget.task!.estimatedPomodoros ?? 1;
-      
+
       if (widget.task!.dueDate != null) {
         _dueTime = TimeOfDay.fromDateTime(widget.task!.dueDate!);
       }
@@ -59,10 +66,10 @@ class _TaskDialogState extends State<TaskDialog> {
     final date = await showDatePicker(
       context: context,
       initialDate: _dueDate ?? DateTime.now(),
-      firstDate: DateTime.now(),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
+      firstDate: DateTime(1900),
+      lastDate: DateTime(2200),
     );
-    
+
     if (date != null) {
       setState(() {
         _dueDate = date;
@@ -75,7 +82,7 @@ class _TaskDialogState extends State<TaskDialog> {
       context: context,
       initialTime: _dueTime ?? TimeOfDay.now(),
     );
-    
+
     if (time != null) {
       setState(() {
         _dueTime = time;
@@ -96,8 +103,11 @@ class _TaskDialogState extends State<TaskDialog> {
     });
 
     try {
-      final taskProvider = Provider.of<PersistentTaskProvider>(context, listen: false);
-      
+      final taskProvider = Provider.of<PersistentTaskProvider>(
+        context,
+        listen: false,
+      );
+
       DateTime? finalDueDate;
       if (_dueDate != null && _dueTime != null) {
         finalDueDate = DateTime(
@@ -119,16 +129,23 @@ class _TaskDialogState extends State<TaskDialog> {
 
       if (widget.task == null) {
         // Create new task
-        taskProvider.createTask(
+        await taskProvider.createTask(
           Task(
             id: 0, // Will be assigned by the provider
             title: _titleController.text.trim(),
             description: _descriptionController.text.trim(),
-            column: 'To Do',
-            estimatedTime: (_estimatedPomodoros ?? 0) * 25,
+            column:
+                (_status == TaskStatus.completed || _status == TaskStatus.done)
+                    ? 'Done'
+                    : 'To Do',
+            completedAt:
+                (_status == TaskStatus.completed || _status == TaskStatus.done)
+                    ? DateTime.now()
+                    : null,
+            estimatedTime: _estimatedPomodoros * 25,
             actualTime: 0,
             priority: _priority,
-            status: TaskStatus.todo,
+            status: _status,
             reminderEnabled: false,
             reminderOffset: 0,
             isUrgent: false,
@@ -144,15 +161,28 @@ class _TaskDialogState extends State<TaskDialog> {
         );
       } else {
         // Update existing task
-        taskProvider.updateTask(
+        await taskProvider.updateTask(
           widget.task!.copyWith(
             title: _titleController.text.trim(),
             description: _descriptionController.text.trim(),
             priority: _priority,
+            status: _status,
+            clearCompletedAt:
+                _status != TaskStatus.completed && _status != TaskStatus.done,
+            column:
+                (_status == TaskStatus.completed || _status == TaskStatus.done)
+                    ? 'Done'
+                    : widget.task!.column == 'Done'
+                        ? 'To Do'
+                        : widget.task!.column,
+            completedAt:
+                (_status == TaskStatus.completed || _status == TaskStatus.done)
+                    ? widget.task!.completedAt ?? DateTime.now()
+                    : null,
             dueDate: finalDueDate,
             estimatedPomodoros: _estimatedPomodoros,
             tags: tags,
-            estimatedTime: (_estimatedPomodoros ?? 0) * 25,
+            estimatedTime: _estimatedPomodoros * 25,
           ),
         );
       }
@@ -162,9 +192,9 @@ class _TaskDialogState extends State<TaskDialog> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving task: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error saving task: $e')));
       }
     } finally {
       if (mounted) {
@@ -186,7 +216,7 @@ class _TaskDialogState extends State<TaskDialog> {
           children: [
             // Header
             Container(
-              padding: const EdgeInsets.all(24),
+              padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: Theme.of(context).colorScheme.primaryContainer,
                 borderRadius: const BorderRadius.only(
@@ -201,13 +231,16 @@ class _TaskDialogState extends State<TaskDialog> {
                     color: Theme.of(context).colorScheme.onPrimaryContainer,
                   ),
                   const SizedBox(width: 16),
-                  Text(
+                  Expanded(
+                      child: Text(
                     widget.task == null ? 'Create Task' : 'Edit Task',
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onPrimaryContainer,
-                    ),
-                  ),
-                  const Spacer(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          color:
+                              Theme.of(context).colorScheme.onPrimaryContainer,
+                        ),
+                  )),
                   IconButton(
                     onPressed: () => Navigator.of(context).pop(),
                     icon: const Icon(Icons.close),
@@ -216,11 +249,11 @@ class _TaskDialogState extends State<TaskDialog> {
                 ],
               ),
             ),
-            
+
             // Content
             Flexible(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
+                padding: const EdgeInsets.all(16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -234,7 +267,7 @@ class _TaskDialogState extends State<TaskDialog> {
                       textCapitalization: TextCapitalization.sentences,
                     ),
                     const SizedBox(height: 16),
-                    
+
                     // Description
                     TextField(
                       controller: _descriptionController,
@@ -246,79 +279,47 @@ class _TaskDialogState extends State<TaskDialog> {
                       textCapitalization: TextCapitalization.sentences,
                     ),
                     const SizedBox(height: 16),
-                    
-                    // Priority and Status
-                    Row(
-                      children: [
-                        Expanded(
-                          child: DropdownButtonFormField<TaskPriority>(
-                            value: _priority,
-                            decoration: const InputDecoration(
-                              labelText: 'Priority',
-                              border: OutlineInputBorder(),
+
+                    DropdownButtonFormField<TaskPriority>(
+                      value: _priority,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Priority',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: TaskPriority.values
+                          .map(
+                            (value) => DropdownMenuItem(
+                              value: value,
+                              child: Text(value.displayName),
                             ),
-                            items: TaskPriority.values.map((priority) {
-                              return DropdownMenuItem(
-                                value: priority,
-                                child: Row(
-                                  children: [
-                                    Icon(
-                                      _getPriorityIcon(priority),
-                                      color: _getPriorityColor(priority),
-                                      size: 16,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Text(_getPriorityText(priority)),
-                                  ],
-                                ),
-                              );
-                            }).toList(),
-                            onChanged: (value) {
-                              if (value != null) {
-                                setState(() {
-                                  _priority = value;
-                                });
-                              }
-                            },
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: DropdownButtonFormField<TaskStatus>(
-                            value: _status,
-                            decoration: const InputDecoration(
-                              labelText: 'Status',
-                              border: OutlineInputBorder(),
-                            ),
-                            items: TaskStatus.values.map((status) {
-                              return DropdownMenuItem(
-                                value: status,
-                                child: Row(
-                                  children: [
-                                    Icon(
-                                      _getStatusIcon(status),
-                                      color: _getStatusColor(status),
-                                      size: 16,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Text(_getStatusText(status)),
-                                  ],
-                                ),
-                              );
-                            }).toList(),
-                            onChanged: (value) {
-                              if (value != null) {
-                                setState(() {
-                                  _status = value;
-                                });
-                              }
-                            },
-                          ),
-                        ),
-                      ],
+                          )
+                          .toList(),
+                      onChanged: (value) {
+                        if (value != null) setState(() => _priority = value);
+                      },
                     ),
                     const SizedBox(height: 16),
-                    
+                    DropdownButtonFormField<TaskStatus>(
+                      value: _status,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Status',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: TaskStatus.values
+                          .map(
+                            (value) => DropdownMenuItem(
+                              value: value,
+                              child: Text(value.displayName),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (value) {
+                        if (value != null) setState(() => _status = value);
+                      },
+                    ),
+                    const SizedBox(height: 16),
                     // Due Date and Time
                     Row(
                       children: [
@@ -366,7 +367,7 @@ class _TaskDialogState extends State<TaskDialog> {
                       ],
                     ),
                     const SizedBox(height: 16),
-                    
+
                     // Estimated Pomodoros
                     Row(
                       children: [
@@ -392,14 +393,17 @@ class _TaskDialogState extends State<TaskDialog> {
                         const SizedBox(width: 16),
                         Text(
                           '≈ ${(_estimatedPomodoros * 25)} min',
-                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: Theme.of(context).colorScheme.onSurfaceVariant,
-                          ),
+                          style:
+                              Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.onSurfaceVariant,
+                                  ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 16),
-                    
+
                     // Tags
                     TextField(
                       controller: _tagsController,
@@ -413,15 +417,16 @@ class _TaskDialogState extends State<TaskDialog> {
                 ),
               ),
             ),
-            
+
             // Actions
             Container(
-              padding: const EdgeInsets.all(24),
+              padding: const EdgeInsets.all(16),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   TextButton(
-                    onPressed: _isLoading ? null : () => Navigator.of(context).pop(),
+                    onPressed:
+                        _isLoading ? null : () => Navigator.of(context).pop(),
                     child: const Text('Cancel'),
                   ),
                   const SizedBox(width: 16),
@@ -442,89 +447,5 @@ class _TaskDialogState extends State<TaskDialog> {
         ),
       ),
     );
-  }
-
-  IconData _getPriorityIcon(TaskPriority priority) {
-    switch (priority) {
-      case TaskPriority.low:
-        return Icons.keyboard_arrow_down;
-      case TaskPriority.medium:
-        return Icons.remove;
-      case TaskPriority.high:
-        return Icons.keyboard_arrow_up;
-      case TaskPriority.urgent:
-        return Icons.priority_high;
-    }
-  }
-
-  Color _getPriorityColor(TaskPriority priority) {
-    switch (priority) {
-      case TaskPriority.low:
-        return Colors.green;
-      case TaskPriority.medium:
-        return Colors.orange;
-      case TaskPriority.high:
-        return Colors.red;
-      case TaskPriority.urgent:
-        return Colors.purple;
-    }
-  }
-
-  String _getPriorityText(TaskPriority priority) {
-    switch (priority) {
-      case TaskPriority.low:
-        return 'Low';
-      case TaskPriority.medium:
-        return 'Medium';
-      case TaskPriority.high:
-        return 'High';
-      case TaskPriority.urgent:
-        return 'Urgent';
-    }
-  }
-
-  IconData _getStatusIcon(TaskStatus status) {
-    switch (status) {
-      case TaskStatus.todo:
-        return Icons.radio_button_unchecked;
-      case TaskStatus.inProgress:
-        return Icons.schedule;
-      case TaskStatus.done:
-        return Icons.check_circle_outline;
-      case TaskStatus.completed:
-        return Icons.check_circle;
-      case TaskStatus.cancelled:
-        return Icons.cancel;
-    }
-  }
-
-  Color _getStatusColor(TaskStatus status) {
-    switch (status) {
-      case TaskStatus.todo:
-        return Colors.grey;
-      case TaskStatus.inProgress:
-        return Colors.blue;
-      case TaskStatus.done:
-        return Colors.lightGreen;
-      case TaskStatus.completed:
-        return Colors.green;
-      case TaskStatus.cancelled:
-        return Colors.red;
-    }
-  }
-
-  String _getStatusText(TaskStatus status) {
-    switch (status) {
-      case TaskStatus.todo:
-        return 'To Do';
-      case TaskStatus.inProgress:
-        return 'In Progress';
-      case TaskStatus.done:
-        return 'Done';
-      case TaskStatus.completed:
-        return 'Completed';
-      case TaskStatus.cancelled:
-        return 'Cancelled';
-    }
   }
 }

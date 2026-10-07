@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/models.dart';
-import '../providers/simple_project_provider.dart';
+import '../providers/persistent_project_provider.dart';
 
 class ProjectDialog extends StatefulWidget {
   final Project? project;
@@ -35,7 +35,9 @@ class _ProjectDialogState extends State<ProjectDialog> {
   void initState() {
     super.initState();
     _nameController = TextEditingController(text: widget.project?.name ?? '');
-    _descriptionController = TextEditingController(text: widget.project?.description ?? '');
+    _descriptionController = TextEditingController(
+      text: widget.project?.description ?? '',
+    );
     if (widget.project != null) {
       _color = widget.project!.color ?? '#2196F3';
     }
@@ -61,23 +63,24 @@ class _ProjectDialogState extends State<ProjectDialog> {
     });
 
     try {
-      final projectProvider = Provider.of<SimpleProjectProvider>(context, listen: false);
-      
+      final projectProvider = Provider.of<PersistentProjectProvider>(
+        context,
+        listen: false,
+      );
+
+      final project = Project(
+        id: widget.project?.id ?? 0,
+        name: _nameController.text.trim(),
+        description: _descriptionController.text.trim(),
+        color: _color,
+        ownerId: widget.project?.ownerId ?? 1,
+        createdAt: widget.project?.createdAt ?? DateTime.now(),
+        updatedAt: DateTime.now(),
+      );
       if (widget.project == null) {
-        // Create new project
-        await projectProvider.createProject(
-          _nameController.text.trim(),
-          _descriptionController.text.trim(),
-          _color,
-        );
+        await projectProvider.createProject(project);
       } else {
-        // Update existing project
-        await projectProvider.updateProject(
-          widget.project!.id,
-          name: _nameController.text.trim(),
-          description: _descriptionController.text.trim(),
-          color: _color,
-        );
+        await projectProvider.updateProject(project);
       }
 
       if (mounted) {
@@ -85,9 +88,9 @@ class _ProjectDialogState extends State<ProjectDialog> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving project: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error saving project: $e')));
       }
     } finally {
       if (mounted) {
@@ -124,15 +127,17 @@ class _ProjectDialogState extends State<ProjectDialog> {
               child: Row(
                 children: [
                   Icon(
-                    widget.project == null ? Icons.create_new_folder : Icons.edit,
+                    widget.project == null
+                        ? Icons.create_new_folder
+                        : Icons.edit,
                     color: Colors.white,
                   ),
                   const SizedBox(width: 16),
                   Text(
                     widget.project == null ? 'Create Project' : 'Edit Project',
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      color: Colors.white,
-                    ),
+                    style: Theme.of(
+                      context,
+                    ).textTheme.headlineSmall?.copyWith(color: Colors.white),
                   ),
                   const Spacer(),
                   IconButton(
@@ -143,7 +148,7 @@ class _ProjectDialogState extends State<ProjectDialog> {
                 ],
               ),
             ),
-            
+
             // Content
             Padding(
               padding: const EdgeInsets.all(24),
@@ -160,7 +165,7 @@ class _ProjectDialogState extends State<ProjectDialog> {
                     textCapitalization: TextCapitalization.words,
                   ),
                   const SizedBox(height: 16),
-                  
+
                   // Description
                   TextField(
                     controller: _descriptionController,
@@ -172,7 +177,7 @@ class _ProjectDialogState extends State<ProjectDialog> {
                     textCapitalization: TextCapitalization.sentences,
                   ),
                   const SizedBox(height: 24),
-                  
+
                   // Color Selection
                   Text(
                     'Project Color',
@@ -223,7 +228,7 @@ class _ProjectDialogState extends State<ProjectDialog> {
                 ],
               ),
             ),
-            
+
             // Actions
             Container(
               padding: const EdgeInsets.all(24),
@@ -231,7 +236,8 @@ class _ProjectDialogState extends State<ProjectDialog> {
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   TextButton(
-                    onPressed: _isLoading ? null : () => Navigator.of(context).pop(),
+                    onPressed:
+                        _isLoading ? null : () => Navigator.of(context).pop(),
                     child: const Text('Cancel'),
                   ),
                   const SizedBox(width: 16),
