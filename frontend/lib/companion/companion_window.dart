@@ -22,6 +22,7 @@ class CompanionWindow extends ChangeNotifier {
         size: Size(420, 84),
         backgroundColor: Colors.transparent,
         titleBarStyle: TitleBarStyle.hidden,
+        windowButtonVisibility: false,
         title: 'Blitzit',
       ),
     );
